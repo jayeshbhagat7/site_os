@@ -1,0 +1,1962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SiteOS — Construction ERP</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:#F1F5F9;color:#0F172A}
+  ::-webkit-scrollbar{width:5px;height:5px}
+  ::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:99px}
+  ::-webkit-scrollbar-track{background:transparent}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:#1D4ED8!important;box-shadow:0 0 0 3px rgba(29,78,216,.12)!important}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes slideUp{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+// ── SUPABASE ──────────────────────────────────────────────────────
+const { createClient } = supabase;
+const sb = createClient(
+  "https://nixusvqbslokiexxxtic.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5peHVzdnFic2xva2lleHh4dGljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4ODM0NzIsImV4cCI6MjA4ODQ1OTQ3Mn0.DyFJ48Iryl5cSKB1fZbuNdcge30y0vevEKaR2UyKaLQ"
+);
+
+// ── PALETTE ───────────────────────────────────────────────────────
+const C = {
+  sidebar:"#0F172A", sideHover:"#1E293B", sideActive:"#1D4ED8",
+  accent:"#1D4ED8", accentL:"#3B82F6", accentBg:"#EFF6FF",
+  bg:"#F1F5F9", card:"#FFFFFF", border:"#E2E8F0",
+  text:"#0F172A", muted:"#64748B", faint:"#94A3B8",
+  green:"#16A34A", greenBg:"#DCFCE7",
+  orange:"#D97706", orangeBg:"#FEF3C7",
+  red:"#DC2626", redBg:"#FEE2E2",
+  blue:"#1D4ED8", blueBg:"#DBEAFE",
+  cyan:"#0891B2", cyanBg:"#CFFAFE",
+  purple:"#7C3AED", purpleBg:"#EDE9FE",
+};
+
+// ── ICONS ─────────────────────────────────────────────────────────
+const Ic = ({ d, s=18, col="currentColor", style:sx }) => (
+  <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={col}
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    style={{flexShrink:0,...sx}}>
+    <path d={d}/>
+  </svg>
+);
+const I = {
+  home:"M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z M9 22V12h6v10",
+  building:"M3 21h18 M3 7l9-4 9 4 M4 7v14 M20 7v14 M9 21v-4a1 1 0 011-1h4a1 1 0 011 1v4",
+  store:"M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z M3 6h18",
+  material:"M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z M3.27 6.96L12 12.01l8.73-5.05 M12 22.08V12",
+  vendor:"M20 7H4a2 2 0 00-2 2v6a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16",
+  worker:"M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2 M9 11a4 4 0 100-8 4 4 0 000 8 M23 21v-2a4 4 0 00-3-3.87 M16 3.13a4 4 0 010 7.75",
+  user:"M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2 M12 11a4 4 0 100-8 4 4 0 000 8",
+  wallet:"M21 12V7H5a2 2 0 010-4h14v4 M3 5v14a2 2 0 002 2h16v-5 M18 12a2 2 0 000 4h3v-4h-3z",
+  policy:"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
+  payroll:"M12 2v20 M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6",
+  expense:"M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z",
+  compliance:"M9 11l3 3L22 4 M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11",
+  dpr:"M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z M14 2v6h6 M16 13H8 M16 17H8",
+  report:"M18 20V10 M12 20V4 M6 20v-6",
+  procurement:"M6 2h12l4 4v14a2 2 0 01-2 2H4a2 2 0 01-2-2V6l4-4z",
+  plus:"M12 5v14 M5 12h14",
+  edit:"M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7 M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z",
+  search:"M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0",
+  x:"M18 6L6 18 M6 6l12 12",
+  check:"M20 6L9 17l-5-5",
+  alert:"M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z M12 9v4 M12 17h.01",
+  menu:"M3 12h18 M3 6h18 M3 18h18",
+  chevR:"M9 18l6-6-6-6",
+};
+
+// ── COMPONENTS ────────────────────────────────────────────────────
+const roleColor = {Owner:"purple",SIC:"blue",Supervisor:"cyan",Storekeeper:"orange",Office:"green",Admin:"red"};
+const roleDesc = {
+  Owner:"Full read, all sites",
+  SIC:"Full access, assigned site",
+  Supervisor:"Attendance + DPR, own site",
+  Storekeeper:"Store inward/issue, own site",
+  Office:"Payroll + compliance, all sites",
+  Admin:"Master tables, user creation",
+};
+
+const Badge = ({color="gray",children,dot}) => {
+  const m = {
+    green:{bg:C.greenBg,tx:C.green},orange:{bg:C.orangeBg,tx:C.orange},
+    red:{bg:C.redBg,tx:C.red},blue:{bg:C.blueBg,tx:C.blue},
+    cyan:{bg:C.cyanBg,tx:C.cyan},purple:{bg:C.purpleBg,tx:C.purple},
+    gray:{bg:"#F1F5F9",tx:C.muted},
+  };
+  const s=m[color]||m.gray;
+  return <span style={{background:s.bg,color:s.tx,padding:"2px 8px",borderRadius:99,
+    fontSize:11,fontWeight:700,display:"inline-flex",alignItems:"center",
+    gap:4,whiteSpace:"nowrap"}}>
+    {dot&&<span style={{width:6,height:6,borderRadius:"50%",background:s.tx}}/>}
+    {children}
+  </span>;
+};
+
+const Inp = ({label,error,hint,...p}) => (
+  <div style={{marginBottom:14}}>
+    {label&&<label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,
+      marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>{label}</label>}
+    <input {...p} style={{width:"100%",padding:"9px 12px",
+      border:`1.5px solid ${error?C.red:C.border}`,borderRadius:8,
+      fontSize:14,color:C.text,background:"#fff",fontFamily:"inherit",
+      ...p.style}}/>
+    {hint&&!error&&<p style={{margin:"3px 0 0",fontSize:11,color:C.faint}}>{hint}</p>}
+    {error&&<p style={{margin:"3px 0 0",fontSize:11,color:C.red,fontWeight:600}}>{error}</p>}
+  </div>
+);
+
+const Sel = ({label,error,options,placeholder="— Select —",...p}) => (
+  <div style={{marginBottom:14}}>
+    {label&&<label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,
+      marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>{label}</label>}
+    <select {...p} style={{width:"100%",padding:"9px 12px",
+      border:`1.5px solid ${error?C.red:C.border}`,borderRadius:8,
+      fontSize:14,color:p.value?C.text:C.muted,background:"#fff",fontFamily:"inherit"}}>
+      <option value="">{placeholder}</option>
+      {options.map(o=><option key={o.v!=null?o.v:o} value={o.v!=null?o.v:o}>{o.l!=null?o.l:o}</option>)}
+    </select>
+    {error&&<p style={{margin:"3px 0 0",fontSize:11,color:C.red,fontWeight:600}}>{error}</p>}
+  </div>
+);
+
+const Tog = ({label,sub,checked,onChange}) => (
+  <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:14,cursor:"pointer"}}
+    onClick={()=>onChange(!checked)}>
+    <div style={{width:38,height:21,borderRadius:11,background:checked?C.accent:"#CBD5E1",
+      flexShrink:0,position:"relative",transition:"background .2s",marginTop:2}}>
+      <div style={{position:"absolute",top:3,left:checked?19:3,width:15,height:15,
+        borderRadius:"50%",background:"#fff",transition:"left .2s",
+        boxShadow:"0 1px 3px rgba(0,0,0,.2)"}}/>
+    </div>
+    <div>
+      <p style={{margin:0,fontSize:14,color:C.text,userSelect:"none"}}>{label}</p>
+      {sub&&<p style={{margin:"1px 0 0",fontSize:11,color:C.faint}}>{sub}</p>}
+    </div>
+  </div>
+);
+
+const Btn = ({children,variant="primary",size="md",onClick,disabled,full}) => {
+  const vs={
+    primary:{bg:C.accent,col:"#fff",border:"none"},
+    secondary:{bg:"transparent",col:C.accent,border:`1.5px solid ${C.accent}`},
+    ghost:{bg:"transparent",col:C.muted,border:`1.5px solid ${C.border}`},
+    danger:{bg:C.red,col:"#fff",border:"none"},
+  };
+  const ss={md:{p:"8px 18px",fs:14},sm:{p:"5px 12px",fs:12}};
+  const v=vs[variant]||vs.primary; const s=ss[size]||ss.md;
+  return <button onClick={onClick} disabled={disabled}
+    style={{background:v.bg,color:v.col,border:v.border,padding:s.p,fontSize:s.fs,
+      borderRadius:8,fontWeight:600,cursor:disabled?"not-allowed":"pointer",
+      opacity:disabled?.6:1,display:"inline-flex",alignItems:"center",gap:6,
+      whiteSpace:"nowrap",fontFamily:"inherit",width:full?"100%":undefined,
+      justifyContent:full?"center":undefined}}>
+    {children}
+  </button>;
+};
+
+const Divider = ({label}) => (
+  <div style={{display:"flex",alignItems:"center",gap:10,margin:"16px 0 4px"}}>
+    {label&&<span style={{fontSize:11,fontWeight:700,color:C.faint,textTransform:"uppercase",
+      letterSpacing:".08em",whiteSpace:"nowrap"}}>{label}</span>}
+    <div style={{flex:1,height:1,background:C.border}}/>
+  </div>
+);
+
+const SlideOver = ({open,onClose,title,subtitle,children,width=500}) => {
+  if(!open) return null;
+  const w = Math.min(width, window.innerWidth);
+  return <div style={{position:"fixed",inset:0,zIndex:50}}>
+    <div onClick={onClose} style={{position:"absolute",inset:0,
+      background:"rgba(15,23,42,.5)",backdropFilter:"blur(3px)"}}/>
+    <div style={{position:"absolute",right:0,top:0,bottom:0,width:w,
+      background:"#fff",boxShadow:"-8px 0 32px rgba(0,0,0,.15)",
+      display:"flex",flexDirection:"column",animation:"slideUp .2s ease"}}>
+      <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,
+        display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexShrink:0}}>
+        <div>
+          <h3 style={{margin:0,fontSize:16,fontWeight:800,color:C.text}}>{title}</h3>
+          {subtitle&&<p style={{margin:"3px 0 0",fontSize:12,color:C.muted}}>{subtitle}</p>}
+        </div>
+        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",
+          color:C.muted,padding:4,marginTop:-2}}>
+          <Ic d={I.x}/>
+        </button>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"18px 20px"}}>{children}</div>
+    </div>
+  </div>;
+};
+
+const useToast = () => {
+  const [t,setT] = useState(null);
+  const show = (msg,type="success")=>{setT({msg,type});setTimeout(()=>setT(null),3500);};
+  const Toast = ()=>!t?null:<div style={{position:"fixed",bottom:24,right:24,zIndex:200,
+    background:t.type==="success"?C.green:C.red,color:"#fff",padding:"11px 18px",
+    borderRadius:10,fontSize:13,fontWeight:700,boxShadow:"0 4px 20px rgba(0,0,0,.2)",
+    display:"flex",alignItems:"center",gap:8,animation:"slideUp .2s ease"}}>
+    <Ic d={t.type==="success"?I.check:I.alert} s={15} col="#fff"/>
+    {t.msg}
+  </div>;
+  return {show,Toast};
+};
+
+const Search = ({value,onChange,placeholder="Search..."}) => (
+  <div style={{position:"relative",flex:"1 1 200px"}}>
+    <div style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",color:C.faint}}>
+      <Ic d={I.search} s={15}/>
+    </div>
+    <input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+      style={{width:"100%",paddingLeft:34,paddingRight:12,paddingTop:8,paddingBottom:8,
+        border:`1.5px solid ${C.border}`,borderRadius:8,fontSize:13,color:C.text,
+        background:"#fff",fontFamily:"inherit"}}/>
+  </div>
+);
+
+const Tbl = ({cols,rows,empty="No records"}) => (
+  <div style={{overflowX:"auto",border:`1px solid ${C.border}`,borderRadius:10,background:"#fff"}}>
+    <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+      <thead>
+        <tr style={{background:"#F8FAFC"}}>
+          {cols.map((c,i)=><th key={i} style={{padding:"10px 14px",textAlign:"left",
+            fontWeight:700,fontSize:11,textTransform:"uppercase",letterSpacing:".06em",
+            color:C.muted,borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{c.h}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.length===0
+          ?<tr><td colSpan={cols.length} style={{padding:"40px 14px",textAlign:"center",color:C.faint}}>{empty}</td></tr>
+          :rows.map((row,ri)=>(
+            <tr key={ri} style={{borderBottom:`1px solid ${C.border}`,background:ri%2===0?"#fff":"#FAFAFA"}}>
+              {cols.map((c,ci)=><td key={ci} style={{padding:"11px 14px",color:C.text,
+                whiteSpace:c.wrap?"normal":"nowrap"}}>{c.r?c.r(row):row[c.k]}</td>)}
+            </tr>
+          ))}
+      </tbody>
+    </table>
+  </div>
+);
+
+const PH = ({title,sub,right}) => (
+  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",
+    marginBottom:20,gap:16,flexWrap:"wrap"}}>
+    <div>
+      <h2 style={{margin:0,fontSize:20,fontWeight:800,color:C.text}}>{title}</h2>
+      {sub&&<p style={{margin:"3px 0 0",fontSize:13,color:C.muted}}>{sub}</p>}
+    </div>
+    {right&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{right}</div>}
+  </div>
+);
+
+const Stat = ({title,value,icon,color,sub,warn}) => (
+  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,
+    padding:"18px 20px",display:"flex",gap:14,boxShadow:"0 1px 3px rgba(0,0,0,.04)"}}>
+    <div style={{width:44,height:44,borderRadius:11,background:color+"1A",
+      display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+      <Ic d={icon} s={20} col={color}/>
+    </div>
+    <div style={{flex:1}}>
+      <p style={{margin:0,fontSize:11,color:C.muted,fontWeight:700,
+        textTransform:"uppercase",letterSpacing:".06em"}}>{title}</p>
+      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:3}}>
+        <span style={{fontSize:26,fontWeight:800,lineHeight:1,
+          color:warn&&value>0?C.red:C.text}}>{value??0}</span>
+        {warn&&value>0&&<Ic d={I.alert} s={14} col={C.red}/>}
+      </div>
+      {sub&&<p style={{margin:"3px 0 0",fontSize:11,color:C.faint}}>{sub}</p>}
+    </div>
+  </div>
+);
+
+const Pager = ({page,total,size,onChange}) => {
+  const pages=Math.ceil(total/size);
+  if(pages<=1) return null;
+  return <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+    marginTop:14,flexWrap:"wrap",gap:8}}>
+    <span style={{fontSize:12,color:C.muted}}>
+      {page*size+1}–{Math.min((page+1)*size,total)} of {total}
+    </span>
+    <div style={{display:"flex",gap:6}}>
+      <Btn variant="ghost" size="sm" onClick={()=>onChange(page-1)} disabled={page===0}>← Prev</Btn>
+      <Btn variant="ghost" size="sm" onClick={()=>onChange(page+1)} disabled={page>=pages-1}>Next →</Btn>
+    </div>
+  </div>;
+};
+
+const Soon = ({module}) => (
+  <div style={{display:"flex",flexDirection:"column",alignItems:"center",
+    justifyContent:"center",height:"55vh",gap:14}}>
+    <div style={{width:64,height:64,borderRadius:18,background:C.accentBg,
+      display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <Ic d={I.compliance} s={28} col={C.accent}/>
+    </div>
+    <h3 style={{margin:0,fontSize:18,fontWeight:800}}>{module}</h3>
+    <p style={{margin:0,color:C.muted,fontSize:13}}>Coming Soon — Phase 2</p>
+    <Badge color="blue">In Development</Badge>
+  </div>
+);
+
+const Spinner = () => (
+  <div style={{display:"flex",alignItems:"center",justifyContent:"center",
+    height:"50vh",gap:10,color:C.muted}}>
+    <div style={{width:20,height:20,border:`2px solid ${C.border}`,
+      borderTopColor:C.accent,borderRadius:"50%",animation:"spin 1s linear infinite"}}/>
+    Loading...
+  </div>
+);
+
+// ══════════════════════════════════════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════════════════════════════════════
+const Dashboard = () => {
+  const [s,setS] = useState(null);
+  const [sites,setSites] = useState([]);
+
+  useEffect(()=>{
+    (async()=>{
+      const [{count:aw},{count:gtv},{count:activeSites},{count:stores},{data:mats},{count:users}] = await Promise.all([
+        sb.from("workers").select("*",{count:"exact",head:true}).eq("status","Active"),
+        sb.from("workers").select("*",{count:"exact",head:true}).eq("status","GTV"),
+        sb.from("sites").select("*",{count:"exact",head:true}).eq("is_active",true),
+        sb.from("stores").select("*",{count:"exact",head:true}).eq("is_active",true),
+        sb.from("materials").select("moq,current_stock").eq("is_active",true),
+        sb.from("app_users").select("*",{count:"exact",head:true}).eq("is_active",true),
+      ]);
+      const ls=(mats||[]).filter(m=>m.moq>0&&m.current_stock<m.moq).length;
+      setS({aw:aw||0,gtv:gtv||0,activeSites:activeSites||0,stores:stores||0,ls,users:users||0});
+      const {data:sd} = await sb.from("sites").select("*").eq("is_active",true).order("site_name");
+      setSites(sd||[]);
+    })();
+  },[]);
+
+  if(!s) return <Spinner/>;
+
+  return <div>
+    <PH title="Dashboard" sub="SiteOS — Site Operations Command Center"/>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:14,marginBottom:24}}>
+      <Stat title="Active Workers" value={s.aw} icon={I.worker} color={C.green} sub="All sites"/>
+      <Stat title="Below MOQ" value={s.ls} icon={I.alert} color={C.red} warn sub="Need reorder"/>
+      <Stat title="On GTV" value={s.gtv} icon={I.worker} color={C.orange} sub="Gone to village"/>
+      <Stat title="Active Sites" value={s.activeSites} icon={I.building} color={C.accent}/>
+      <Stat title="Active Stores" value={s.stores} icon={I.store} color={C.cyan}/>
+      <Stat title="System Users" value={s.users} icon={I.user} color={C.purple}/>
+    </div>
+
+    {sites.length===0
+      ?<div style={{background:C.accentBg,border:"1px solid #BFDBFE",borderRadius:12,
+          padding:"20px 24px",display:"flex",gap:14,alignItems:"flex-start"}}>
+          <Ic d={I.alert} s={20} col={C.accent}/>
+          <div>
+            <p style={{margin:0,fontWeight:700,fontSize:14,color:C.accent}}>Getting Started</p>
+            <p style={{margin:"6px 0 0",fontSize:13,color:"#1D4ED8",lineHeight:1.6}}>
+              <b>Step 1:</b> Go to Masters → Sites → Add your project sites (WWC, Khar, Dahisar)<br/>
+              <b>Step 2:</b> Masters → Stores → Add stores for each site (D5, E2, C3)<br/>
+              <b>Step 3:</b> Masters → Users → Add team members (Jayesh, Sikhu, PP, Milton)<br/>
+              <b>Step 4:</b> Masters → Workers → Add your labour force
+            </p>
+          </div>
+        </div>
+      :<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:20}}>
+          <p style={{margin:"0 0 14px",fontSize:13,fontWeight:700}}>Active Sites</p>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:10}}>
+            {sites.map(site=>(
+              <div key={site.site_id} style={{padding:"12px 14px",background:"#F8FAFC",
+                border:`1px solid ${C.border}`,borderRadius:9}}>
+                <p style={{margin:0,fontWeight:800,fontSize:15}}>{site.site_name}</p>
+                {site.site_code&&<p style={{margin:"2px 0 6px",fontSize:11,color:C.muted}}>{site.site_code}</p>}
+                <Badge color="green" dot>Active</Badge>
+              </div>
+            ))}
+          </div>
+        </div>
+    }
+  </div>;
+};
+
+// ══════════════════════════════════════════════════════════════════
+// SITE MASTER
+// ══════════════════════════════════════════════════════════════════
+const SiteMaster = () => {
+  const [data,setData]=useState([]); const [open,setOpen]=useState(false);
+  const [editing,setEditing]=useState(null); const [form,setForm]=useState({});
+  const [errs,setErrs]=useState({}); const [saving,setSaving]=useState(false);
+  const {show,Toast}=useToast();
+  const F=v=>setForm(f=>({...f,...v}));
+
+  const load=useCallback(async()=>{
+    const {data:d}=await sb.from("sites").select("*").order("site_name");
+    setData(d||[]);
+  },[]);
+  useEffect(()=>{load();},[load]);
+
+  const openAdd=()=>{setEditing(null);setForm({is_active:true});setErrs({});setOpen(true);};
+  const openEdit=r=>{setEditing(r);setForm({...r});setErrs({});setOpen(true);};
+
+  const save=async()=>{
+    const e={};
+    if(!form.site_name?.trim()) e.site_name="Required";
+    if(Object.keys(e).length){setErrs(e);return;}
+    setSaving(true);
+    const p={site_name:form.site_name.trim(),site_code:form.site_code?.trim()||null,
+      location:form.location||null,client_name:form.client_name||null,
+      started_on:form.started_on||null,is_active:form.is_active!==false};
+    const {error}=editing
+      ?await sb.from("sites").update(p).eq("site_id",editing.site_id)
+      :await sb.from("sites").insert(p);
+    setSaving(false);
+    if(error){show(error.message,"error");return;}
+    show(editing?"Site updated":"Site added ✓");
+    setOpen(false);load();
+  };
+
+  const cols=[
+    {h:"Site Name",r:r=><span style={{fontWeight:800,fontSize:15}}>{r.site_name}</span>},
+    {h:"Code",r:r=>r.site_code?<code style={{color:C.accent,fontWeight:700}}>{r.site_code}</code>:<span style={{color:C.faint}}>—</span>},
+    {h:"Client",r:r=>r.client_name||<span style={{color:C.faint}}>—</span>},
+    {h:"Location",r:r=>r.location||<span style={{color:C.faint}}>—</span>},
+    {h:"Status",r:r=>r.is_active?<Badge color="green" dot>Active</Badge>:<Badge color="gray" dot>Inactive</Badge>},
+    {h:"",r:r=><Btn size="sm" variant="secondary" onClick={()=>openEdit(r)}>Edit</Btn>},
+  ];
+
+  return <div>
+    <Toast/>
+    <PH title="Site Master" sub={`${data.filter(d=>d.is_active).length} active sites`}
+      right={<Btn onClick={openAdd}><Ic d={I.plus} s={15} col="#fff"/>Add Site</Btn>}/>
+    <Tbl cols={cols} rows={data} empty="No sites yet — add your first project site"/>
+    <SlideOver open={open} onClose={()=>setOpen(false)}
+      title={editing?"Edit Site":"Add Site"}>
+      <Inp label="Site Name *" value={form.site_name||""} placeholder="e.g. WWC, Khar, Dahisar"
+        onChange={e=>F({site_name:e.target.value})} error={errs.site_name}/>
+      <Inp label="Site Code" value={form.site_code||""} placeholder="Short code e.g. WWC"
+        hint="Used in reports and dropdowns"
+        onChange={e=>F({site_code:e.target.value})}/>
+      <Inp label="Client / Owner Name" value={form.client_name||""}
+        onChange={e=>F({client_name:e.target.value})}/>
+      <Inp label="Location" value={form.location||""} placeholder="e.g. Bhingarwadi, Pune"
+        onChange={e=>F({location:e.target.value})}/>
+      <Inp label="Started On" type="date" value={form.started_on||""}
+        onChange={e=>F({started_on:e.target.value})}/>
+      <Tog label="Site is Active" checked={form.is_active!==false}
+        onChange={v=>F({is_active:v})}/>
+      <div style={{display:"flex",gap:8,paddingTop:8}}>
+        <Btn onClick={save} disabled={saving}>{saving?"Saving...":editing?"Save Changes":"Add Site"}</Btn>
+        <Btn variant="ghost" onClick={()=>setOpen(false)}>Cancel</Btn>
+      </div>
+    </SlideOver>
+  </div>;
+};
+
+// ══════════════════════════════════════════════════════════════════
+// STORE MASTER
+// ══════════════════════════════════════════════════════════════════
+const StoreMaster = () => {
+  const [data,setData]=useState([]); const [sites,setSites]=useState([]);
+  const [filterSite,setFilterSite]=useState(""); const [open,setOpen]=useState(false);
+  const [editing,setEditing]=useState(null); const [form,setForm]=useState({});
+  const [errs,setErrs]=useState({}); const [saving,setSaving]=useState(false);
+  const {show,Toast}=useToast();
+  const F=v=>setForm(f=>({...f,...v}));
+
+  const load=useCallback(async()=>{
+    const [{data:d},{data:s}]=await Promise.all([
+      sb.from("stores").select("*,sites(site_name)").order("site_id").order("store_name"),
+      sb.from("sites").select("site_id,site_name").eq("is_active",true).order("site_name"),
+    ]);
+    setData(d||[]);setSites(s||[]);
+  },[]);
+  useEffect(()=>{load();},[load]);
+
+  const openAdd=()=>{setEditing(null);setForm({is_active:true,store_type:"Central Store"});setErrs({});setOpen(true);};
+  const openEdit=r=>{setEditing(r);setForm({...r,site_id:r.site_id?.toString()});setErrs({});setOpen(true);};
+
+  const save=async()=>{
+    const e={};
+    if(!form.store_name?.trim()) e.store_name="Required";
+    if(!form.site_id) e.site_id="Select a site";
+    if(!form.store_type) e.store_type="Required";
+    if(Object.keys(e).length){setErrs(e);return;}
+    setSaving(true);
+    const p={store_name:form.store_name.trim(),site_id:parseInt(form.site_id),
+      store_type:form.store_type,location_detail:form.location_detail||null,
+      company_bank:form.company_bank||null,company_account_no:form.company_account_no||null,
+      company_ifsc:form.company_ifsc||null,last_cheque_no:parseInt(form.last_cheque_no)||0,
+      is_active:form.is_active!==false};
+    const {error}=editing
+      ?await sb.from("stores").update(p).eq("store_id",editing.store_id)
+      :await sb.from("stores").insert(p);
+    setSaving(false);
+    if(error){show(error.message,"error");return;}
+    show(editing?"Store updated":"Store added ✓");
+    setOpen(false);load();
+  };
+
+  const filtered=filterSite?data.filter(d=>d.site_id===parseInt(filterSite)):data;
+  const grouped=filtered.reduce((acc,s)=>{
+    const k=s.sites?.site_name||"Unknown";
+    (acc[k]=acc[k]||[]).push(s);return acc;
+  },{});
+
+  const cols=[
+    {h:"Store",r:r=><span style={{fontWeight:700,fontSize:15}}>{r.store_name}</span>},
+    {h:"Type",r:r=><Badge color={r.store_type==="Central Store"?"blue":"cyan"}>{r.store_type}</Badge>},
+    {h:"Location",r:r=>r.location_detail||<span style={{color:C.faint}}>—</span>},
+    {h:"Status",r:r=>r.is_active?<Badge color="green" dot>Active</Badge>:<Badge color="gray" dot>Inactive</Badge>},
+    {h:"",r:r=><Btn size="sm" variant="secondary" onClick={()=>openEdit(r)}>Edit</Btn>},
+  ];
+
+  return <div>
+    <Toast/>
+    <PH title="Store Master" sub="Central stores and substores per site"
+      right={<>
+        <select value={filterSite} onChange={e=>setFilterSite(e.target.value)}
+          style={{padding:"7px 12px",border:`1.5px solid ${C.border}`,borderRadius:8,
+            fontSize:13,color:filterSite?C.text:C.muted,background:"#fff",fontFamily:"inherit"}}>
+          <option value="">All Sites</option>
+          {sites.map(s=><option key={s.site_id} value={s.site_id}>{s.site_name}</option>)}
+        </select>
+        <Btn onClick={openAdd}><Ic d={I.plus} s={15} col="#fff"/>Add Store</Btn>
+      </>}/>
+
+    {sites.length===0&&(
+      <div style={{padding:16,background:C.accentBg,borderRadius:10,
+        border:"1px solid #BFDBFE",marginBottom:16,fontSize:13,color:"#1D4ED8"}}>
+        ⚠ Please create Sites first, then add Stores to them.
+      </div>
+    )}
+
+    {Object.keys(grouped).length===0
+      ?<Tbl cols={cols} rows={[]} empty="No stores yet — add stores after creating sites"/>
+      :Object.entries(grouped).map(([siteName,strs])=>(
+        <div key={siteName} style={{marginBottom:24}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+            <Ic d={I.building} s={15} col={C.muted}/>
+            <span style={{fontWeight:700,fontSize:14}}>{siteName}</span>
+            <Badge color="gray">{strs.length} store{strs.length!==1?"s":""}</Badge>
+          </div>
+          <Tbl cols={cols} rows={strs}/>
+        </div>
+      ))
+    }
+
+    <SlideOver open={open} onClose={()=>setOpen(false)}
+      title={editing?"Edit Store":"Add Store"}>
+      <Sel label="Site *" value={form.site_id||""} error={errs.site_id}
+        options={sites.map(s=>({v:s.site_id,l:s.site_name}))}
+        onChange={e=>F({site_id:e.target.value})}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <Inp label="Store Name *" value={form.store_name||""} placeholder="e.g. D5, E2, Main"
+          hint="Same name OK in different sites"
+          onChange={e=>F({store_name:e.target.value})} error={errs.store_name}/>
+        <Sel label="Store Type *" value={form.store_type||""}
+          options={["Central Store","Substore"]}
+          onChange={e=>F({store_type:e.target.value})} error={errs.store_type}/>
+      </div>
+      <Inp label="Location Detail" value={form.location_detail||""}
+        placeholder="e.g. Ground Floor, Tower 3"
+        onChange={e=>F({location_detail:e.target.value})}/>
+      <Divider label="Bank Details (for Salary Letters)"/>
+      <Inp label="Bank Name" value={form.company_bank||""} placeholder="e.g. Bank of Baroda"
+        onChange={e=>F({company_bank:e.target.value})}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <Inp label="Account Number" value={form.company_account_no||""}
+          onChange={e=>F({company_account_no:e.target.value})}/>
+        <Inp label="IFSC Code" value={form.company_ifsc||""}
+          onChange={e=>F({company_ifsc:e.target.value})}/>
+      </div>
+      <Tog label="Store is Active" checked={form.is_active!==false} onChange={v=>F({is_active:v})}/>
+      <div style={{display:"flex",gap:8,paddingTop:8}}>
+        <Btn onClick={save} disabled={saving}>{saving?"Saving...":editing?"Save Changes":"Add Store"}</Btn>
+        <Btn variant="ghost" onClick={()=>setOpen(false)}>Cancel</Btn>
+      </div>
+    </SlideOver>
+  </div>;
+};
+
+// ══════════════════════════════════════════════════════════════════
+// USER MASTER
+// ══════════════════════════════════════════════════════════════════
+const UserMaster = () => {
+  const [data,setData]=useState([]); const [sites,setSites]=useState([]);
+  const [search,setSearch]=useState(""); const [open,setOpen]=useState(false);
+  const [editing,setEditing]=useState(null); const [form,setForm]=useState({});
+  const [errs,setErrs]=useState({}); const [saving,setSaving]=useState(false);
+  const {show,Toast}=useToast();
+  const F=v=>setForm(f=>({...f,...v}));
+  const ROLES=["Owner","SIC","Supervisor","Storekeeper","Office","Admin"];
+  const ALL_SITE_ROLES=["Owner","Admin","Office"];
+
+  const load=useCallback(async()=>{
+    const [{data:u},{data:s}]=await Promise.all([
+      sb.from("app_users").select("*,sites(site_name)").order("name"),
+      sb.from("sites").select("site_id,site_name").eq("is_active",true).order("site_name"),
+    ]);
+    setData(u||[]);setSites(s||[]);
+  },[]);
+  useEffect(()=>{load();},[load]);
+
+  const openAdd=()=>{setEditing(null);setForm({is_active:true});setErrs({});setOpen(true);};
+  const openEdit=r=>{setEditing(r);setForm({...r,assigned_site_id:r.assigned_site_id?.toString()});setErrs({});setOpen(true);};
+
+  const save=async()=>{
+    const e={};
+    if(!form.name?.trim()) e.name="Required";
+    if(!form.role) e.role="Required";
+    if(Object.keys(e).length){setErrs(e);return;}
+    setSaving(true);
+    const p={name:form.name.trim(),email:form.email||null,phone:form.phone||null,
+      role:form.role,
+      assigned_site_id:(!ALL_SITE_ROLES.includes(form.role)&&form.assigned_site_id)?parseInt(form.assigned_site_id):null,
+      is_active:form.is_active!==false};
+    const {error}=editing
+      ?await sb.from("app_users").update(p).eq("user_id",editing.user_id)
+      :await sb.from("app_users").insert(p);
+    setSaving(false);
+    if(error){show(error.message,"error");return;}
+    show(editing?"User updated":"User added ✓");
+    setOpen(false);load();
+  };
+
+  const filtered=data.filter(d=>!search||
+    d.name.toLowerCase().includes(search.toLowerCase())||
+    d.role.toLowerCase().includes(search.toLowerCase()));
+
+  const cols=[
+    {h:"Name",r:r=>(
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <div style={{width:32,height:32,borderRadius:"50%",flexShrink:0,
+          background:C[(roleColor[r.role]||"gray")+"Bg"]||"#F1F5F9",
+          display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <span style={{fontSize:13,fontWeight:800,color:C[roleColor[r.role]]||C.muted}}>
+            {r.name[0].toUpperCase()}
+          </span>
+        </div>
+        <div>
+          <p style={{margin:0,fontWeight:700}}>{r.name}</p>
+          {r.phone&&<p style={{margin:0,fontSize:11,color:C.muted}}>{r.phone}</p>}
+        </div>
+      </div>
+    )},
+    {h:"Role",r:r=><Badge color={roleColor[r.role]||"gray"}>{r.role}</Badge>},
+    {h:"Site Access",r:r=>ALL_SITE_ROLES.includes(r.role)
+      ?<span style={{fontSize:12,color:C.muted}}>All Sites</span>
+      :r.sites?.site_name||<span style={{color:C.red,fontSize:12}}>Not assigned</span>},
+    {h:"Status",r:r=>r.is_active?<Badge color="green" dot>Active</Badge>:<Badge color="gray" dot>Inactive</Badge>},
+    {h:"",r:r=><Btn size="sm" variant="secondary" onClick={()=>openEdit(r)}>Edit</Btn>},
+  ];
+
+  return <div>
+    <Toast/>
+    <PH title="Users & Roles" sub="All system users"
+      right={<Btn onClick={openAdd}><Ic d={I.plus} s={15} col="#fff"/>Add User</Btn>}/>
+    <div style={{background:C.accentBg,border:"1px solid #BFDBFE",borderRadius:10,
+      padding:"12px 16px",marginBottom:16,display:"flex",flexWrap:"wrap",gap:8}}>
+      {ROLES.map(r=>(
+        <div key={r} style={{display:"flex",alignItems:"center",gap:5}}>
+          <Badge color={roleColor[r]||"gray"}>{r}</Badge>
+          <span style={{fontSize:11,color:"#1D4ED8"}}>{roleDesc[r]}</span>
+        </div>
+      ))}
+    </div>
+    <div style={{marginBottom:14}}><Search value={search} onChange={setSearch} placeholder="Search name or role..."/></div>
+    <Tbl cols={cols} rows={filtered} empty="No users yet — add your first user"/>
+
+    <SlideOver open={open} onClose={()=>setOpen(false)}
+      title={editing?"Edit User":"Add User"}>
+      <Inp label="Full Name *" value={form.name||""} placeholder="e.g. Jayesh Bhagat"
+        onChange={e=>F({name:e.target.value})} error={errs.name}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <Inp label="Phone" value={form.phone||""} placeholder="Mobile number"
+          onChange={e=>F({phone:e.target.value})}/>
+        <Inp label="Email" type="email" value={form.email||""}
+          onChange={e=>F({email:e.target.value})}/>
+      </div>
+      <Sel label="Role *" value={form.role||""} options={ROLES}
+        onChange={e=>F({role:e.target.value})} error={errs.role}/>
+      {form.role&&<div style={{background:C.accentBg,border:"1px solid #BFDBFE",
+        borderRadius:8,padding:"10px 14px",marginBottom:14}}>
+        <p style={{margin:0,fontSize:12,color:"#1D4ED8",fontWeight:600}}>{roleDesc[form.role]}</p>
+      </div>}
+      {form.role&&!ALL_SITE_ROLES.includes(form.role)&&(
+        <Sel label="Assigned Site" value={form.assigned_site_id||""}
+          options={sites.map(s=>({v:s.site_id,l:s.site_name}))}
+          onChange={e=>F({assigned_site_id:e.target.value})}/>
+      )}
+      {form.role&&ALL_SITE_ROLES.includes(form.role)&&(
+        <div style={{background:"#F0FDF4",border:"1px solid #BBF7D0",
+          borderRadius:8,padding:"10px 14px",marginBottom:14}}>
+          <p style={{margin:0,fontSize:12,color:C.green}}>
+            <b>{form.role}</b> has access to all sites automatically.
+          </p>
+        </div>
+      )}
+      <Tog label="User is Active" checked={form.is_active!==false} onChange={v=>F({is_active:v})}/>
+      <div style={{display:"flex",gap:8,paddingTop:8}}>
+        <Btn onClick={save} disabled={saving}>{saving?"Saving...":editing?"Save Changes":"Add User"}</Btn>
+        <Btn variant="ghost" onClick={()=>setOpen(false)}>Cancel</Btn>
+      </div>
+    </SlideOver>
+  </div>;
+};
+
+// ══════════════════════════════════════════════════════════════════
+// MATERIAL MASTER
+// ══════════════════════════════════════════════════════════════════
+const MaterialMaster = () => {
+  const [data,setData]=useState([]); const [search,setSearch]=useState("");
+  const [filterCat,setFilterCat]=useState(""); const [open,setOpen]=useState(false);
+  const [editing,setEditing]=useState(null); const [form,setForm]=useState({});
+  const [errs,setErrs]=useState({}); const [saving,setSaving]=useState(false);
+  const [page,setPage]=useState(0); const PS=25;
+  const {show,Toast}=useToast();
+  const F=v=>setForm(f=>({...f,...v}));
+  const CATS=["Cement","Steel","Timber","Tools","Consumables","Electrical","Plumbing","Safety","Hardware","Other"];
+  const UNITS=["kg","nos","mtr","bag","ltr","set","pair","rmt","sqmt","ton","cft"];
+
+  const load=useCallback(async()=>{
+    const {data:d}=await sb.from("materials").select("*").order("material_name");
+    setData(d||[]);
+  },[]);
+  useEffect(()=>{load();},[load]);
+
+  const save=async()=>{
+    const e={};
+    if(!form.material_name?.trim()) e.material_name="Required";
+    if(!form.category) e.category="Required";
+    if(!form.unit) e.unit="Required";
+    if(!form.material_type) e.material_type="Required";
+    if(Object.keys(e).length){setErrs(e);return;}
+    setSaving(true);
+    const p={material_name:form.material_name.trim(),category:form.category,unit:form.unit,
+      material_type:form.material_type,is_returnable:!!form.is_returnable,
+      brand_or_make:form.brand_or_make||null,moq:parseFloat(form.moq)||0,
+      current_stock:parseFloat(form.current_stock)||0,is_active:form.is_active!==false};
+    const {error}=editing
+      ?await sb.from("materials").update(p).eq("material_id",editing.material_id)
+      :await sb.from("materials").insert(p);
+    setSaving(false);
+    if(error){show(error.message,"error");return;}
+    show(editing?"Updated ✓":"Added ✓");setOpen(false);load();
+  };
+
+  const filtered=data.filter(d=>{
+    if(filterCat&&d.category!==filterCat) return false;
+    if(search&&!d.material_name.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+  const paged=filtered.slice(page*PS,(page+1)*PS);
+
+  const cols=[
+    {h:"Material",r:r=><div>
+      <span style={{fontWeight:700}}>{r.material_name}</span>
+      {r.brand_or_make&&<span style={{color:C.faint,fontSize:11,marginLeft:6}}>{r.brand_or_make}</span>}
+    </div>},
+    {h:"Category",r:r=><Badge color="blue">{r.category}</Badge>},
+    {h:"Unit",r:r=><Badge color="gray">{r.unit}</Badge>},
+    {h:"Stock/MOQ",r:r=><div style={{display:"flex",alignItems:"center",gap:5}}>
+      <span style={{fontWeight:600}}>{r.current_stock}</span>
+      <span style={{color:C.faint}}>/{r.moq}</span>
+      {r.moq>0&&r.current_stock<r.moq&&<Badge color="red">Low</Badge>}
+    </div>},
+    {h:"",r:r=><Btn size="sm" variant="secondary" onClick={()=>{setEditing(r);setForm({...r});setErrs({});setOpen(true);}}>Edit</Btn>},
+  ];
+
+  return <div>
+    <Toast/>
+    <PH title="Material Master"
+      sub={`${data.filter(d=>d.is_active).length} active, ${data.filter(d=>d.moq>0&&d.current_stock<d.moq).length} low stock`}
+      right={<Btn onClick={()=>{setEditing(null);setForm({is_returnable:false,is_active:true,moq:0,current_stock:0});setErrs({});setOpen(true);}}>
+        <Ic d={I.plus} s={15} col="#fff"/>Add Material</Btn>}/>
+    <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+      <Search value={search} onChange={v=>{setSearch(v);setPage(0);}} placeholder="Search materials..."/>
+      <select value={filterCat} onChange={e=>{setFilterCat(e.target.value);setPage(0);}}
+        style={{padding:"8px 12px",border:`1.5px solid ${C.border}`,borderRadius:8,
+          fontSize:13,color:filterCat?C.text:C.muted,background:"#fff",fontFamily:"inherit"}}>
+        <option value="">All Categories</option>
+        {CATS.map(c=><option key={c} value={c}>{c}</option>)}
+      </select>
+    </div>
+    <Tbl cols={cols} rows={paged} empty="No materials yet"/>
+    <Pager page={page} total={filtered.length} size={PS} onChange={setPage}/>
+
+    <SlideOver open={open} onClose={()=>setOpen(false)}
+      title={editing?"Edit Material":"Add Material"}>
+      <Inp label="Material Name *" value={form.material_name||""} placeholder="e.g. OPC Cement 53 Grade"
+        onChange={e=>F({material_name:e.target.value})} error={errs.material_name}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <Sel label="Category *" value={form.category||""} options={CATS}
+          onChange={e=>F({category:e.target.value})} error={errs.category}/>
+        <Sel label="Unit *" value={form.unit||""} options={UNITS}
+          onChange={e=>F({unit:e.target.value})} error={errs.unit}/>
+      </div>
+      <Sel label="Material Type *" value={form.material_type||""}
+        options={["Purchased","Client-Supplied","Tool"]}
+        onChange={e=>F({material_type:e.target.value})} error={errs.material_type}/>
+      <Inp label="Brand / Make" value={form.brand_or_make||""} placeholder="e.g. UltraTech, Tata"
+        onChange={e=>F({brand_or_make:e.target.value})}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <Inp label="MOQ" type="number" value={form.moq??0} onChange={e=>F({moq:e.target.value})}/>
+        <Inp label="Current Stock" type="number" value={form.current_stock??0}
+          onChange={e=>F({current_stock:e.target.value})}/>
+      </div>
+      <Tog label="Is Returnable (Tool/Equipment)" checked={!!form.is_returnable}
+        onChange={v=>F({is_returnable:v})}/>
+      <Tog label="Is Active" checked={form.is_active!==false} onChange={v=>F({is_active:v})}/>
+      <div style={{display:"flex",gap:8,paddingTop:8}}>
+        <Btn onClick={save} disabled={saving}>{saving?"Saving...":editing?"Save Changes":"Add Material"}</Btn>
+        <Btn variant="ghost" onClick={()=>setOpen(false)}>Cancel</Btn>
+      </div>
+    </SlideOver>
+  </div>;
+};
+
+// ══════════════════════════════════════════════════════════════════
+// VENDOR MASTER
+// ══════════════════════════════════════════════════════════════════
+const VendorMaster = () => {
+  const [data,setData]=useState([]); const [search,setSearch]=useState("");
+  const [open,setOpen]=useState(false); const [editing,setEditing]=useState(null);
+  const [form,setForm]=useState({}); const [errs,setErrs]=useState({});
+  const [saving,setSaving]=useState(false);
+  const {show,Toast}=useToast();
+  const F=v=>setForm(f=>({...f,...v}));
+
+  const load=useCallback(async()=>{
+    const {data:d}=await sb.from("vendors").select("*").order("vendor_name");
+    setData(d||[]);
+  },[]);
+  useEffect(()=>{load();},[load]);
+
+  const save=async()=>{
+    const e={};
+    if(!form.vendor_name?.trim()) e.vendor_name="Required";
+    if(!form.shop_type) e.shop_type="Required";
+    if(Object.keys(e).length){setErrs(e);return;}
+    setSaving(true);
+    const p={vendor_name:form.vendor_name.trim(),shop_type:form.shop_type,
+      contact_number:form.contact_number||null,address:form.address||null,
+      gst_number:form.gst_number||null,pan_number:form.pan_number||null,
+      is_active:form.is_active!==false};
+    const {error}=editing
+      ?await sb.from("vendors").update(p).eq("vendor_id",editing.vendor_id)
+      :await sb.from("vendors").insert(p);
+    setSaving(false);
+    if(error){show(error.message,"error");return;}
+    show(editing?"Updated ✓":"Added ✓");setOpen(false);load();
+  };
+
+  const filtered=data.filter(d=>!search||
+    d.vendor_name.toLowerCase().includes(search.toLowerCase()));
+
+  const cols=[
+    {h:"Vendor",r:r=><span style={{fontWeight:700}}>{r.vendor_name}</span>},
+    {h:"Type",r:r=><Badge color="cyan">{r.shop_type}</Badge>},
+    {h:"Contact",r:r=>r.contact_number||<span style={{color:C.faint}}>—</span>},
+    {h:"GST",r:r=>r.gst_number||<span style={{color:C.faint}}>—</span>},
+    {h:"Status",r:r=>r.is_active?<Badge color="green" dot>Active</Badge>:<Badge color="gray" dot>Inactive</Badge>},
+    {h:"",r:r=><Btn size="sm" variant="secondary" onClick={()=>{setEditing(r);setForm({...r});setErrs({});setOpen(true);}}>Edit</Btn>},
+  ];
+
+  return <div>
+    <Toast/>
+    <PH title="Vendor Master" sub={`${data.filter(d=>d.is_active).length} active vendors`}
+      right={<Btn onClick={()=>{setEditing(null);setForm({is_active:true});setErrs({});setOpen(true);}}>
+        <Ic d={I.plus} s={15} col="#fff"/>Add Vendor</Btn>}/>
+    <div style={{marginBottom:14}}><Search value={search} onChange={setSearch}/></div>
+    <Tbl cols={cols} rows={filtered} empty="No vendors yet"/>
+
+    <SlideOver open={open} onClose={()=>setOpen(false)}
+      title={editing?"Edit Vendor":"Add Vendor"}>
+      <Inp label="Vendor Name *" value={form.vendor_name||""}
+        onChange={e=>F({vendor_name:e.target.value})} error={errs.vendor_name}/>
+      <Sel label="Shop Type *" value={form.shop_type||""}
+        options={["Hardware","Supplier","Transport","Labour Contractor","Other"]}
+        onChange={e=>F({shop_type:e.target.value})} error={errs.shop_type}/>
+      <Inp label="Contact Number" value={form.contact_number||""}
+        onChange={e=>F({contact_number:e.target.value})}/>
+      <Inp label="Address" value={form.address||""}
+        onChange={e=>F({address:e.target.value})}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <Inp label="GST Number" value={form.gst_number||""}
+          onChange={e=>F({gst_number:e.target.value})}/>
+        <Inp label="PAN Number" value={form.pan_number||""}
+          onChange={e=>F({pan_number:e.target.value})}/>
+      </div>
+      <Tog label="Is Active" checked={!!form.is_active} onChange={v=>F({is_active:v})}/>
+      <div style={{display:"flex",gap:8,paddingTop:8}}>
+        <Btn onClick={save} disabled={saving}>{saving?"Saving...":editing?"Save Changes":"Add Vendor"}</Btn>
+        <Btn variant="ghost" onClick={()=>setOpen(false)}>Cancel</Btn>
+      </div>
+    </SlideOver>
+  </div>;
+};
+
+// ══════════════════════════════════════════════════════════════════
+// WORKER MASTER
+// ══════════════════════════════════════════════════════════════════
+const WorkerMaster = () => {
+  const [data,setData]=useState([]); const [sites,setSites]=useState([]);
+  const [stores,setStores]=useState([]); const [formStores,setFormStores]=useState([]);
+  const [search,setSearch]=useState(""); const [fSite,setFSite]=useState("");
+  const [fStatus,setFStatus]=useState(""); const [open,setOpen]=useState(false);
+  const [editing,setEditing]=useState(null); const [form,setForm]=useState({});
+  const [errs,setErrs]=useState({}); const [saving,setSaving]=useState(false);
+  const [page,setPage]=useState(0); const PS=25;
+  const {show,Toast}=useToast();
+  const F=v=>setForm(f=>({...f,...v}));
+  const TRADES=["Carpenter","Fitter","M/C","BRM","Supervisor","Engineer","Electrician","Storekeeper","Helper","Safety","Other"];
+  const STATUS_COLOR={Active:"green",GTV:"orange",Transferred:"blue",Left:"red"};
+
+  const load=useCallback(async()=>{
+    const [{data:w},{data:s},{data:st}]=await Promise.all([
+      sb.from("workers").select("*,sites(site_name),stores(store_name)").order("worker_name"),
+      sb.from("sites").select("site_id,site_name").eq("is_active",true).order("site_name"),
+      sb.from("stores").select("store_id,store_name,site_id").eq("is_active",true),
+    ]);
+    setData(w||[]);setSites(s||[]);setStores(st||[]);
+  },[]);
+  useEffect(()=>{load();},[load]);
+
+  useEffect(()=>{
+    if(form.current_site_id)
+      setFormStores(stores.filter(s=>s.site_id===parseInt(form.current_site_id)));
+    else setFormStores([]);
+  },[form.current_site_id,stores]);
+
+  const openAdd=()=>{setEditing(null);setForm({status:"Active",is_active:true,
+    esic_eligible:true,worker_type:"Daily Wage",bank_account_type:"SB"});
+    setErrs({});setOpen(true);};
+  const openEdit=r=>{setEditing(r);setForm({...r,
+    current_site_id:r.current_site_id?.toString(),
+    current_store_id:r.current_store_id?.toString()});
+    setErrs({});setOpen(true);};
+
+  const save=async()=>{
+    const e={};
+    if(!form.worker_code?.trim()) e.worker_code="Required";
+    if(!form.worker_name?.trim()) e.worker_name="Required";
+    if(!form.trade) e.trade="Required";
+    if(!form.per_day_rate&&form.per_day_rate!==0) e.per_day_rate="Required";
+    if(Object.keys(e).length){setErrs(e);return;}
+    setSaving(true);
+    const p={worker_code:form.worker_code.trim(),worker_name:form.worker_name.trim(),
+      trade:form.trade,worker_type:form.worker_type||"Daily Wage",
+      aadhaar_number:form.aadhaar_number||null,pan_number:form.pan_number||null,
+      bank_account:form.bank_account||null,bank_ifsc:form.bank_ifsc||null,
+      bank_name:form.bank_name||null,bank_account_type:form.bank_account_type||"SB",
+      is_bob_midc_branch:!!form.is_bob_midc_branch,
+      esic_ip_number:form.esic_ip_number||null,esic_eligible:form.esic_eligible!==false,
+      pf_uan_number:form.pf_uan_number||null,
+      per_day_rate:parseFloat(form.per_day_rate)||0,
+      current_site_id:form.current_site_id?parseInt(form.current_site_id):null,
+      current_store_id:form.current_store_id?parseInt(form.current_store_id):null,
+      status:form.status||"Active",
+      gtv_date:form.status==="GTV"?form.gtv_date||null:null,
+      date_joined:form.date_joined||null,
+      minimum_wage_category:form.minimum_wage_category||"semi_skilled",
+      is_active:form.is_active!==false};
+    const {error}=editing
+      ?await sb.from("workers").update(p).eq("id",editing.id)
+      :await sb.from("workers").insert(p);
+    setSaving(false);
+    if(error){show(error.message,"error");return;}
+    show(editing?"Updated ✓":"Worker added ✓");setOpen(false);load();
+  };
+
+  const filtered=data.filter(d=>{
+    if(fSite&&d.current_site_id!==parseInt(fSite)) return false;
+    if(fStatus&&d.status!==fStatus) return false;
+    if(search&&!d.worker_name.toLowerCase().includes(search.toLowerCase())&&
+      !d.worker_code.includes(search)) return false;
+    return true;
+  });
+  const paged=filtered.slice(page*PS,(page+1)*PS);
+
+  const cols=[
+    {h:"Code",r:r=><code style={{fontWeight:700,color:C.accent}}>{r.worker_code}</code>},
+    {h:"Name",r:r=><span style={{fontWeight:600}}>{r.worker_name}</span>},
+    {h:"Trade",r:r=><Badge color="blue">{r.trade}</Badge>},
+    {h:"Site",r:r=><div>
+      <p style={{margin:0,fontSize:12,fontWeight:600}}>{r.sites?.site_name||"—"}</p>
+      {r.stores?.store_name&&<p style={{margin:0,fontSize:11,color:C.muted}}>{r.stores.store_name}</p>}
+    </div>},
+    {h:"Rate",r:r=><span style={{fontWeight:600}}>₹{r.per_day_rate}</span>},
+    {h:"Status",r:r=><div>
+      <Badge color={STATUS_COLOR[r.status]||"gray"}>{r.status}</Badge>
+      {r.status==="GTV"&&r.gtv_date&&<p style={{margin:"2px 0 0",fontSize:10,color:C.faint}}>{r.gtv_date}</p>}
+    </div>},
+    {h:"",r:r=><Btn size="sm" variant="secondary" onClick={()=>openEdit(r)}>Edit</Btn>},
+  ];
+
+  return <div>
+    <Toast/>
+    <PH title="Worker Master"
+      sub={`${data.filter(d=>d.status==="Active").length} active · ${data.filter(d=>d.status==="GTV").length} GTV · ${data.length} total`}
+      right={<Btn onClick={openAdd}><Ic d={I.plus} s={15} col="#fff"/>Add Worker</Btn>}/>
+    <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+      <Search value={search} onChange={v=>{setSearch(v);setPage(0);}} placeholder="Search name or code..."/>
+      <select value={fSite} onChange={e=>{setFSite(e.target.value);setPage(0);}}
+        style={{padding:"8px 12px",border:`1.5px solid ${C.border}`,borderRadius:8,
+          fontSize:13,color:fSite?C.text:C.muted,background:"#fff",fontFamily:"inherit"}}>
+        <option value="">All Sites</option>
+        {sites.map(s=><option key={s.site_id} value={s.site_id}>{s.site_name}</option>)}
+      </select>
+      <select value={fStatus} onChange={e=>{setFStatus(e.target.value);setPage(0);}}
+        style={{padding:"8px 12px",border:`1.5px solid ${C.border}`,borderRadius:8,
+          fontSize:13,color:fStatus?C.text:C.muted,background:"#fff",fontFamily:"inherit"}}>
+        <option value="">All Status</option>
+        {["Active","GTV","Transferred","Left"].map(s=><option key={s} value={s}>{s}</option>)}
+      </select>
+    </div>
+    <Tbl cols={cols} rows={paged} empty="No workers yet"/>
+    <Pager page={page} total={filtered.length} size={PS} onChange={setPage}/>
+
+    <SlideOver open={open} onClose={()=>setOpen(false)}
+      title={editing?"Edit Worker":"Add Worker"} width={540}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <Inp label="Worker Code *" value={form.worker_code||""} placeholder="e.g. 1258"
+          hint="Existing system code" error={errs.worker_code}
+          onChange={e=>F({worker_code:e.target.value})}/>
+        <Inp label="Full Name *" value={form.worker_name||""}
+          onChange={e=>F({worker_name:e.target.value})} error={errs.worker_name}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <Sel label="Trade *" value={form.trade||""} options={TRADES}
+          onChange={e=>F({trade:e.target.value})} error={errs.trade}/>
+        <Sel label="Worker Type" value={form.worker_type||"Daily Wage"}
+          options={["Daily Wage","Fixed Salary","Contract"]}
+          onChange={e=>F({worker_type:e.target.value})}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <Inp label="Rate/Day (₹) *" type="number" value={form.per_day_rate||""}
+          onChange={e=>F({per_day_rate:e.target.value})} error={errs.per_day_rate}/>
+        <Sel label="Status" value={form.status||"Active"}
+          options={["Active","GTV","Transferred","Left"]}
+          onChange={e=>F({status:e.target.value})}/>
+      </div>
+      {form.status==="GTV"&&
+        <Inp label="GTV Date" type="date" value={form.gtv_date||""}
+          onChange={e=>F({gtv_date:e.target.value})}/>}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <Sel label="Assigned Site" value={form.current_site_id||""}
+          options={sites.map(s=>({v:s.site_id,l:s.site_name}))}
+          onChange={e=>F({current_site_id:e.target.value,current_store_id:""})}/>
+        <Sel label="Assigned Store" value={form.current_store_id||""}
+          placeholder={form.current_site_id?"— Select store —":"Select site first"}
+          options={formStores.map(s=>({v:s.store_id,l:s.store_name}))}
+          onChange={e=>F({current_store_id:e.target.value})}/>
+      </div>
+      <Inp label="Date Joined" type="date" value={form.date_joined||""}
+        onChange={e=>F({date_joined:e.target.value})}/>
+      <Divider label="Identity"/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <Inp label="Aadhaar" value={form.aadhaar_number||""}
+          onChange={e=>F({aadhaar_number:e.target.value})}/>
+        <Inp label="PAN" value={form.pan_number||""}
+          onChange={e=>F({pan_number:e.target.value})}/>
+      </div>
+      <Divider label="Bank Details"/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <Inp label="Bank Name" value={form.bank_name||""}
+          onChange={e=>F({bank_name:e.target.value})}/>
+        <Sel label="Account Type" value={form.bank_account_type||"SB"} options={["SB","Current"]}
+          onChange={e=>F({bank_account_type:e.target.value})}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <Inp label="Account Number" value={form.bank_account||""}
+          onChange={e=>F({bank_account:e.target.value})}/>
+        <Inp label="IFSC Code" value={form.bank_ifsc||""}
+          onChange={e=>F({bank_ifsc:e.target.value})}/>
+      </div>
+      <Tog label="BOB MIDC Branch" sub="Format 1 salary letter"
+        checked={!!form.is_bob_midc_branch} onChange={v=>F({is_bob_midc_branch:v})}/>
+      <Divider label="Statutory"/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <Inp label="ESIC IP No" value={form.esic_ip_number||""}
+          onChange={e=>F({esic_ip_number:e.target.value})}/>
+        <Inp label="PF UAN No" value={form.pf_uan_number||""}
+          onChange={e=>F({pf_uan_number:e.target.value})}/>
+      </div>
+      <Tog label="ESIC Eligible" checked={form.esic_eligible!==false}
+        onChange={v=>F({esic_eligible:v})}/>
+      <Tog label="Worker is Active" checked={form.is_active!==false}
+        onChange={v=>F({is_active:v})}/>
+      <div style={{display:"flex",gap:8,paddingTop:8}}>
+        <Btn onClick={save} disabled={saving}>{saving?"Saving...":editing?"Save Changes":"Add Worker"}</Btn>
+        <Btn variant="ghost" onClick={()=>setOpen(false)}>Cancel</Btn>
+      </div>
+    </SlideOver>
+  </div>;
+};
+
+// ══════════════════════════════════════════════════════════════════
+// WALLET MASTER
+// ══════════════════════════════════════════════════════════════════
+const WalletMaster = () => {
+  const [data,setData]=useState([]); const [users,setUsers]=useState([]);
+  const [open,setOpen]=useState(false); const [editing,setEditing]=useState(null);
+  const [form,setForm]=useState({}); const [errs,setErrs]=useState({});
+  const [saving,setSaving]=useState(false);
+  const {show,Toast}=useToast();
+  const F=v=>setForm(f=>({...f,...v}));
+
+  const load=useCallback(async()=>{
+    const [{data:w},{data:u}]=await Promise.all([
+      sb.from("cash_wallets").select("*").order("person_name"),
+      sb.from("app_users").select("user_id,name,role").eq("is_active",true).order("name"),
+    ]);
+    setData(w||[]);setUsers(u||[]);
+  },[]);
+  useEffect(()=>{load();},[load]);
+
+  const save=async()=>{
+    const e={};
+    if(!form.person_name?.trim()) e.person_name="Required";
+    if(!form.role) e.role="Required";
+    if(Object.keys(e).length){setErrs(e);return;}
+    setSaving(true);
+    const p={person_name:form.person_name.trim(),role:form.role,
+      current_balance:parseFloat(form.current_balance)||0,
+      user_id:form.user_id||null,is_active:form.is_active!==false};
+    const {error}=editing
+      ?await sb.from("cash_wallets").update(p).eq("wallet_id",editing.wallet_id)
+      :await sb.from("cash_wallets").insert(p);
+    setSaving(false);
+    if(error){show(error.message,"error");return;}
+    show("Saved ✓");setOpen(false);load();
+  };
+
+  const bc=b=>b>5000?C.green:b<0?C.red:C.orange;
+
+  return <div>
+    <Toast/>
+    <PH title="Cash Wallets" sub="Petty cash per person"
+      right={<Btn onClick={()=>{setEditing(null);setForm({is_active:true,current_balance:0});setErrs({});setOpen(true);}}>
+        <Ic d={I.plus} s={15} col="#fff"/>Add Wallet</Btn>}/>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:14}}>
+      {data.map(w=>(
+        <div key={w.wallet_id} style={{background:C.card,border:`1px solid ${C.border}`,
+          borderRadius:12,padding:"18px 20px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div style={{display:"flex",gap:10,alignItems:"center"}}>
+              <div style={{width:34,height:34,borderRadius:"50%",flexShrink:0,
+                background:C[(roleColor[w.role]||"gray")+"Bg"]||"#F1F5F9",
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <span style={{fontSize:14,fontWeight:800,color:C[roleColor[w.role]]||C.muted}}>
+                  {w.person_name[0].toUpperCase()}
+                </span>
+              </div>
+              <div>
+                <p style={{margin:0,fontWeight:700,fontSize:14}}>{w.person_name}</p>
+                <Badge color={roleColor[w.role]||"gray"}>{w.role}</Badge>
+              </div>
+            </div>
+            <button onClick={()=>{setEditing(w);setForm({...w});setErrs({});setOpen(true);}}
+              style={{background:"none",border:"none",cursor:"pointer",color:C.faint}}>
+              <Ic d={I.edit} s={15}/>
+            </button>
+          </div>
+          <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
+            <p style={{margin:0,fontSize:10,color:C.faint,textTransform:"uppercase",fontWeight:700}}>Balance</p>
+            <p style={{margin:"3px 0 0",fontSize:24,fontWeight:800,color:bc(w.current_balance||0)}}>
+              ₹{(w.current_balance||0).toLocaleString("en-IN")}
+            </p>
+          </div>
+        </div>
+      ))}
+      {data.length===0&&<div style={{gridColumn:"1/-1",padding:40,textAlign:"center",
+        border:`1px dashed ${C.border}`,borderRadius:12,color:C.faint}}>
+        No wallets yet. Add Jayesh, Sikhu, PP, Milton etc.
+      </div>}
+    </div>
+    <SlideOver open={open} onClose={()=>setOpen(false)} title={editing?"Edit Wallet":"Add Wallet"}>
+      <Inp label="Person Name *" value={form.person_name||""} placeholder="e.g. Jayesh, Sikhu, PP"
+        onChange={e=>F({person_name:e.target.value})} error={errs.person_name}/>
+      <Sel label="Role *" value={form.role||""}
+        options={["Owner","SIC","Storekeeper","Supervisor","Office","Admin"]}
+        onChange={e=>F({role:e.target.value})} error={errs.role}/>
+      <Sel label="Link to System User (optional)" value={form.user_id||""}
+        placeholder="— Link to user —"
+        options={users.map(u=>({v:u.user_id,l:`${u.name} (${u.role})`}))}
+        onChange={e=>F({user_id:e.target.value})}/>
+      <Inp label="Current Balance (₹)" type="number" value={form.current_balance??0}
+        onChange={e=>F({current_balance:e.target.value})}/>
+      <Tog label="Active" checked={!!form.is_active} onChange={v=>F({is_active:v})}/>
+      <div style={{display:"flex",gap:8,paddingTop:8}}>
+        <Btn onClick={save} disabled={saving}>{saving?"Saving...":"Save"}</Btn>
+        <Btn variant="ghost" onClick={()=>setOpen(false)}>Cancel</Btn>
+      </div>
+    </SlideOver>
+  </div>;
+};
+
+// ══════════════════════════════════════════════════════════════════
+// POLICY MASTER
+// ══════════════════════════════════════════════════════════════════
+const PolicyMaster = () => {
+  const [policies,setPolicies]=useState([]); const [perms,setPerms]=useState([]);
+  const [sel,setSel]=useState(null); const [saving,setSaving]=useState(false);
+  const {show,Toast}=useToast();
+  const MODULES=["Store","Labour","Payroll","Expense","DPR","Procurement","Compliance","Reports","Masters"];
+  const ACTIONS=[{k:"can_view",l:"View"},{k:"can_add",l:"Add"},{k:"can_edit",l:"Edit"},
+    {k:"can_delete",l:"Del"},{k:"can_export",l:"Export"},{k:"can_print",l:"Print"}];
+
+  const load=useCallback(async()=>{
+    const [{data:p},{data:pp}]=await Promise.all([
+      sb.from("policy_master").select("*").order("policy_id"),
+      sb.from("policy_permissions").select("*"),
+    ]);
+    setPolicies(p||[]);setPerms(pp||[]);
+    if(p?.length&&!sel) setSel(p[0]);
+  },[]);
+  useEffect(()=>{load();},[load]);
+
+  const getPerm=mod=>sel?perms.find(p=>p.policy_id===sel.policy_id&&p.module===mod)||{}:{};
+
+  const toggle=async(mod,action)=>{
+    if(!sel) return;
+    const ex=getPerm(mod); setSaving(true);
+    if(ex.id){
+      await sb.from("policy_permissions").update({[action]:!ex[action]}).eq("id",ex.id);
+    } else {
+      await sb.from("policy_permissions").insert({policy_id:sel.policy_id,module:mod,[action]:true});
+    }
+    setSaving(false);show("Saved");load();
+  };
+
+  return <div>
+    <Toast/>
+    <PH title="Policy Master" sub="Role-based access control"/>
+    <div style={{display:"grid",gridTemplateColumns:"180px 1fr",gap:16,alignItems:"start"}}>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {policies.map(p=>(
+          <div key={p.policy_id} onClick={()=>setSel(p)}
+            style={{padding:"11px 13px",borderRadius:9,cursor:"pointer",
+              background:sel?.policy_id===p.policy_id?C.accentBg:C.card,
+              border:`1.5px solid ${sel?.policy_id===p.policy_id?C.accent:C.border}`}}>
+            <Badge color={roleColor[p.role_type]||"gray"}>{p.role_type}</Badge>
+            <p style={{margin:"5px 0 0",fontSize:11,color:C.muted,lineHeight:1.4}}>{p.description}</p>
+          </div>
+        ))}
+      </div>
+      {sel&&<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+        <div style={{padding:"13px 16px",borderBottom:`1px solid ${C.border}`,
+          display:"flex",alignItems:"center",gap:10}}>
+          <h3 style={{margin:0,fontSize:14,fontWeight:800}}>{sel.policy_name}</h3>
+          <Badge color={roleColor[sel.role_type]||"gray"}>{sel.role_type}</Badge>
+          {saving&&<span style={{fontSize:11,color:C.faint,marginLeft:"auto"}}>Saving...</span>}
+        </div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+            <thead>
+              <tr style={{background:"#F8FAFC"}}>
+                <th style={{padding:"9px 14px",textAlign:"left",fontWeight:700,fontSize:11,
+                  textTransform:"uppercase",color:C.muted,borderBottom:`1px solid ${C.border}`}}>Module</th>
+                {ACTIONS.map(a=><th key={a.k} style={{padding:"9px 10px",textAlign:"center",
+                  fontWeight:700,fontSize:11,textTransform:"uppercase",color:C.muted,
+                  borderBottom:`1px solid ${C.border}`}}>{a.l}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {MODULES.map((mod,ri)=>{
+                const perm=getPerm(mod);
+                return <tr key={mod} style={{borderBottom:`1px solid ${C.border}`,
+                  background:ri%2===0?"#fff":"#FAFAFA"}}>
+                  <td style={{padding:"10px 14px",fontWeight:600}}>{mod}</td>
+                  {ACTIONS.map(a=>(
+                    <td key={a.k} style={{padding:"10px",textAlign:"center"}}>
+                      <div onClick={()=>toggle(mod,a.k)}
+                        style={{width:22,height:22,borderRadius:6,margin:"0 auto",cursor:"pointer",
+                          background:perm[a.k]?C.accent:C.border,
+                          display:"flex",alignItems:"center",justifyContent:"center",transition:"background .15s"}}>
+                        {perm[a.k]&&<Ic d={I.check} s={12} col="#fff"/>}
+                      </div>
+                    </td>
+                  ))}
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>}
+    </div>
+  </div>;
+};
+
+// ══════════════════════════════════════════════════════════════════
+// APP SHELL
+// ══════════════════════════════════════════════════════════════════
+const I_APPROVAL="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0";
+// Approval icon added
+const NAV=[
+  {id:"dashboard",label:"Dashboard",icon:I.home,comp:Dashboard,group:null},
+  {id:"approvals",label:"Approvals",icon:I_APPROVAL,comp:Approvals,group:null,module:null},
+  {id:"store_ops",label:"Store",icon:I.store,comp:()=><Soon module="Store Operations"/>,group:"Operations"},
+  {id:"labour",label:"Labour",icon:I.worker,comp:()=><Soon module="Labour & Attendance"/>,group:"Operations"},
+  {id:"payroll",label:"Payroll",icon:I.payroll,comp:()=><Soon module="Payroll"/>,group:"Operations"},
+  {id:"expense",label:"Expense",icon:I.expense,comp:()=><Soon module="Expense Manager"/>,group:"Operations"},
+  {id:"procurement",label:"Procurement",icon:I.procurement,comp:()=><Soon module="Procurement"/>,group:"Operations"},
+  {id:"dpr",label:"DPR",icon:I.dpr,comp:()=><Soon module="Daily Progress Report"/>,group:"Operations"},
+  {id:"compliance",label:"Compliance",icon:I.compliance,comp:()=><Soon module="Compliance"/>,group:"Operations"},
+  {id:"reports",label:"Reports",icon:I.report,comp:()=><Soon module="Reports"/>,group:"Operations"},
+  {id:"sites",label:"Sites",icon:I.building,comp:SiteMaster,group:"Masters"},
+  {id:"stores",label:"Stores",icon:I.store,comp:StoreMaster,group:"Masters"},
+  {id:"materials",label:"Materials",icon:I.material,comp:MaterialMaster,group:"Masters"},
+  {id:"vendors",label:"Vendors",icon:I.vendor,comp:VendorMaster,group:"Masters"},
+  {id:"workers",label:"Workers",icon:I.worker,comp:WorkerMaster,group:"Masters"},
+  {id:"users",label:"Users & Roles",icon:I.user,comp:UserMaster,group:"Masters"},
+  {id:"wallets",label:"Cash Wallets",icon:I.wallet,comp:WalletMaster,group:"Masters"},
+  {id:"policies",label:"Policies",icon:I.policy,comp:PolicyMaster,group:"Masters"},
+];
+const PHASE2=["store_ops","labour","payroll","expense","procurement","dpr","compliance","reports"];
+
+
+// ─── AUTH CONTEXT ────────────────────────────────────────────────
+const {createContext,useContext}=React;
+const AuthCtx=createContext(null);
+const useAuth=()=>useContext(AuthCtx);
+const hasPerm=(perms,module,action="can_view")=>{
+  const p=perms?.find(x=>x.module===module);
+  return p?!!p[action]:false;
+};
+const ROLE_DESC={
+  Owner:"Full read, all sites",SIC:"Full access, assigned site",
+  Supervisor:"Attendance+DPR, own site",Storekeeper:"Store inward/issue, own site",
+  Office:"Payroll+compliance, all sites",Admin:"Master tables, user creation",
+};
+const ALL_SITE_ROLES_AUTH=["Owner","Admin","Office"];
+
+// ─── LOGIN ───────────────────────────────────────────────────────
+const Login=({onLogin})=>{
+  const [email,setEmail]=useState("");
+  const [pass,setPass]=useState("");
+  const [showP,setShowP]=useState(false);
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState("");
+
+  const submit=async(e)=>{
+    e.preventDefault();
+    if(!email.trim()||!pass){setErr("Enter email and password");return;}
+    setLoading(true);setErr("");
+    try{
+      const {data,error}=await sb.auth.signInWithPassword({email:email.trim(),password:pass});
+      if(error)throw error;
+      const {data:profile,error:pe}=await sb.from("app_users")
+        .select("*,sites(site_name)").eq("auth_id",data.user.id).single();
+      if(pe||!profile)throw new Error("User profile not found. Ask Admin to create your profile in app_users table.");
+      if(!profile.is_active)throw new Error("Account deactivated. Contact Admin.");
+      const {data:pol}=await sb.from("policy_master").select("policy_id").eq("role_type",profile.role).single();
+      let perms=[];
+      if(pol){const {data:pp}=await sb.from("policy_permissions").select("*").eq("policy_id",pol.policy_id);perms=pp||[];}
+      onLogin({...profile,perms});
+    }catch(e2){setErr(e2.message||"Login failed");}
+    setLoading(false);
+  };
+
+  const iStyle={width:"100%",padding:"11px 14px",background:"rgba(255,255,255,.07)",
+    border:"1.5px solid rgba(255,255,255,.1)",borderRadius:10,fontSize:14,
+    color:"#F1F5F9",fontFamily:"inherit",outline:"none"};
+
+  return <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0F172A 0%,#1E3A5F 60%,#0F172A 100%)",
+    display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{width:"100%",maxWidth:380}}>
+      <div style={{textAlign:"center",marginBottom:28}}>
+        <div style={{width:58,height:58,background:C.accent,borderRadius:18,
+          display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:12}}>
+          <Ic d={I.building} s={28} col="#fff"/>
+        </div>
+        <h1 style={{margin:0,fontSize:24,fontWeight:900,color:"#F1F5F9"}}>SiteOS</h1>
+        <p style={{margin:"3px 0 0",fontSize:11,color:"#475569",fontWeight:700,
+          textTransform:"uppercase",letterSpacing:".12em"}}>Construction ERP</p>
+      </div>
+      <div style={{background:"rgba(255,255,255,.05)",backdropFilter:"blur(20px)",
+        border:"1px solid rgba(255,255,255,.08)",borderRadius:20,padding:28}}>
+        <h2 style={{margin:"0 0 4px",fontSize:17,fontWeight:800,color:"#F1F5F9"}}>Sign In</h2>
+        <p style={{margin:"0 0 22px",fontSize:12,color:"#475569"}}>Use credentials provided by Admin</p>
+        {err&&<div style={{background:"rgba(220,38,38,.15)",border:"1px solid rgba(220,38,38,.3)",
+          borderRadius:9,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"flex-start",gap:8}}>
+          <Ic d={I.alert} s={14} col="#FCA5A5"/>
+          <span style={{fontSize:12,color:"#FCA5A5",fontWeight:600,lineHeight:1.5}}>{err}</span>
+        </div>}
+        <form onSubmit={submit}>
+          <div style={{marginBottom:12}}>
+            <label style={{display:"block",fontSize:10,fontWeight:700,color:"#64748B",
+              marginBottom:4,textTransform:"uppercase",letterSpacing:".07em"}}>Email</label>
+            <input type="email" value={email} onChange={e=>setEmail(e.target.value)}
+              placeholder="you@example.com" autoComplete="email" style={iStyle}/>
+          </div>
+          <div style={{marginBottom:20}}>
+            <label style={{display:"block",fontSize:10,fontWeight:700,color:"#64748B",
+              marginBottom:4,textTransform:"uppercase",letterSpacing:".07em"}}>Password</label>
+            <div style={{position:"relative"}}>
+              <input type={showP?"text":"password"} value={pass} onChange={e=>setPass(e.target.value)}
+                placeholder="••••••••" autoComplete="current-password"
+                style={{...iStyle,paddingRight:40}}/>
+              <button type="button" onClick={()=>setShowP(s=>!s)}
+                style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",
+                  background:"none",border:"none",cursor:"pointer",color:"#64748B"}}>
+                <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d={showP?"M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94 M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24 M1 1l22 22":"M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 9a3 3 0 100 6 3 3 0 000-6z"}/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <button type="submit" disabled={loading}
+            style={{width:"100%",padding:"11px",background:C.accent,color:"#fff",border:"none",
+              borderRadius:10,fontSize:14,fontWeight:700,cursor:loading?"not-allowed":"pointer",
+              opacity:loading?.7:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            {loading&&<div style={{width:15,height:15,border:"2px solid rgba(255,255,255,.3)",
+              borderTopColor:"#fff",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>}
+            {loading?"Signing in…":"Sign In"}
+          </button>
+        </form>
+      </div>
+      <p style={{textAlign:"center",marginTop:14,fontSize:11,color:"#374151"}}>
+        Contact Admin to get your login credentials
+      </p>
+    </div>
+  </div>;
+};
+
+// ─── APPROVALS MODULE ────────────────────────────────────────────
+const Approvals=()=>{
+  const {user}=useAuth();
+  const [list,setList]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [filter,setFilter]=useState("pending");
+  const [sel,setSel]=useState(null);
+  const [note,setNote]=useState("");
+  const [rate,setRate]=useState("");
+  const [saving,setSaving]=useState(false);
+  const {show,Toast}=useToast();
+
+  const typeLabel={debit_rate:"Debit Rate",worker_transfer:"Worker Transfer",
+    material_request:"Material Request",salary_submission:"Salary Submission"};
+  const typeColor={debit_rate:"red",worker_transfer:"blue",material_request:"orange",salary_submission:"green"};
+  const statusColor={pending:"yellow",approved:"green",rejected:"red",cancelled:"gray"};
+
+  const load=useCallback(async()=>{
+    setLoading(true);
+    let q=sb.from("approvals")
+      .select("*,raiser:app_users!approvals_raised_by_fkey(name),sites(site_name)")
+      .order("created_at",{ascending:false});
+    if(filter!=="all") q=q.eq("status",filter);
+    if(user.role==="SIC"&&user.assigned_site_id) q=q.eq("site_id",user.assigned_site_id);
+    else if(user.role==="Office") q=q.eq("approver_role","Office");
+    const {data}=await q;
+    setList(data||[]);setLoading(false);
+  },[filter,user]);
+  useEffect(()=>{load();},[load]);
+
+  const canAct=a=>a.status==="pending"&&(
+    user.role==="Admin"||(a.approver_role==="SIC"&&user.role==="SIC")||
+    (a.approver_role==="Office"&&user.role==="Office"));
+
+  const approve=async()=>{
+    if(!sel)return;
+    if(sel.approval_type==="debit_rate"&&!rate){show("Enter debit rate","error");return;}
+    setSaving(true);
+    const pl=sel.approval_type==="debit_rate"?{...(sel.payload||{}),approved_rate:parseFloat(rate)}:sel.payload;
+    await sb.from("approvals").update({status:"approved",approved_by:user.user_id,
+      approved_at:new Date().toISOString(),payload:pl}).eq("id",sel.id);
+    if(sel.approval_type==="worker_transfer"&&sel.payload?.worker_id){
+      await sb.from("workers").update({current_site_id:sel.payload.to_site_id,
+        current_store_id:null,status:"Active"}).eq("id",sel.payload.worker_id);
+    }
+    if(sel.approval_type==="debit_rate"&&sel.ref_id){
+      await sb.from("worker_debit_log").update({status:"approved",
+        debit_rate:parseFloat(rate),debit_amount:parseFloat(rate)*(sel.payload?.quantity||1)
+      }).eq("id",sel.ref_id);
+    }
+    show("Approved ✓");setSel(null);setRate("");setNote("");load();setSaving(false);
+  };
+
+  const reject=async()=>{
+    if(!note.trim()){show("Enter rejection reason","error");return;}
+    setSaving(true);
+    await sb.from("approvals").update({status:"rejected",approved_by:user.user_id,
+      approved_at:new Date().toISOString(),rejection_note:note}).eq("id",sel.id);
+    show("Rejected","warning");setSel(null);setNote("");load();setSaving(false);
+  };
+
+  const PayloadSummary=({a})=>{
+    const p=a.payload||{};
+    if(a.approval_type==="debit_rate") return <span style={{fontSize:12,color:C.muted}}>
+      {p.worker_name} · {p.material_name} · Qty {p.quantity} {p.unit}
+    </span>;
+    if(a.approval_type==="worker_transfer") return <span style={{fontSize:12,color:C.muted}}>
+      {p.worker_name}: {p.from_site} → {p.to_site} ({p.transfer_type})
+    </span>;
+    if(a.approval_type==="material_request") return <span style={{fontSize:12,color:C.muted}}>
+      {(p.items||[]).slice(0,2).map((it,i)=>`${it.material_name} ×${it.qty_requested}`).join(", ")}
+      {p.items?.length>2?` +${p.items.length-2} more`:""}
+    </span>;
+    if(a.approval_type==="salary_submission") return <span style={{fontSize:12,color:C.muted}}>
+      {p.month} · {p.worker_count} workers · ₹{p.total_amount?.toLocaleString("en-IN")}
+    </span>;
+    return null;
+  };
+
+  return <div>
+    <Toast/>
+    <PH title="Approvals" sub="Pending actions and approval history"/>
+    <div style={{display:"flex",gap:6,marginBottom:20,flexWrap:"wrap"}}>
+      {["pending","approved","rejected","all"].map(f=>(
+        <button key={f} onClick={()=>setFilter(f)}
+          style={{padding:"6px 16px",borderRadius:99,border:`1.5px solid ${filter===f?C.accent:C.border}`,
+            background:filter===f?C.accentBg:"#fff",color:filter===f?C.accent:C.muted,
+            fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",textTransform:"capitalize"}}>
+          {f==="all"?"All":f}
+        </button>
+      ))}
+    </div>
+    {loading?<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"40vh",gap:10,color:C.muted}}>
+        <div style={{width:18,height:18,border:`2px solid ${C.border}`,borderTopColor:C.accent,
+          borderRadius:"50%",animation:"spin 1s linear infinite"}}/>Loading…
+      </div>
+      :list.length===0?<div style={{padding:"60px",textAlign:"center",color:C.faint}}>
+          No {filter!=="all"?filter:""} approvals found
+        </div>
+      :<div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {list.map(a=>(
+          <div key={a.id} style={{background:C.card,
+            border:`1.5px solid ${a.status==="pending"?C.orange+"60":C.border}`,
+            borderRadius:12,padding:"16px 20px"}}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:180}}>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
+                  <Badge color={typeColor[a.approval_type]||"gray"}>{typeLabel[a.approval_type]||a.approval_type}</Badge>
+                  <Badge color={statusColor[a.status]||"gray"} dot>{a.status}</Badge>
+                  {a.sites?.site_name&&<Badge color="gray">{a.sites.site_name}</Badge>}
+                </div>
+                <p style={{margin:"0 0 3px",fontWeight:700}}>{a.payload?.title||"Approval Request"}</p>
+                <PayloadSummary a={a}/>
+                <p style={{margin:"5px 0 0",fontSize:11,color:C.faint}}>
+                  By <b>{a.raiser?.name||"—"}</b> · {new Date(a.created_at).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}
+                </p>
+                {a.rejection_note&&<p style={{margin:"4px 0 0",fontSize:12,color:C.red}}>Reason: {a.rejection_note}</p>}
+                {a.payload?.approved_rate&&<p style={{margin:"4px 0 0",fontSize:12,color:C.green}}>Approved rate: ₹{a.payload.approved_rate}/unit</p>}
+              </div>
+              {canAct(a)&&<Btn size="sm" onClick={()=>{setSel(a);setNote("");setRate("");}}>Review</Btn>}
+            </div>
+          </div>
+        ))}
+      </div>
+    }
+    {sel&&<div style={{position:"fixed",inset:0,zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div onClick={()=>setSel(null)} style={{position:"absolute",inset:0,background:"rgba(15,23,42,.5)",backdropFilter:"blur(3px)"}}/>
+      <div style={{position:"relative",width:Math.min(460,window.innerWidth-32),background:"#fff",
+        borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,.2)",overflow:"hidden"}}>
+        <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,
+          display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <h3 style={{margin:0,fontSize:16,fontWeight:800}}>Review Approval</h3>
+          <button onClick={()=>setSel(null)} style={{background:"none",border:"none",cursor:"pointer",color:C.muted}}><Ic d={I.x}/></button>
+        </div>
+        <div style={{padding:"20px"}}>
+          <div style={{background:"#F8FAFC",borderRadius:10,padding:"14px 16px",marginBottom:16}}>
+            <Badge color={typeColor[sel.approval_type]||"gray"}>{typeLabel[sel.approval_type]}</Badge>
+            <p style={{margin:"8px 0 4px",fontWeight:700}}>{sel.payload?.title}</p>
+            <PayloadSummary a={sel}/>
+          </div>
+          {sel.approval_type==="debit_rate"&&(
+            <div style={{marginBottom:14}}>
+              <label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,
+                marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>Set Debit Rate (₹/unit) *</label>
+              <input type="number" value={rate} onChange={e=>setRate(e.target.value)} placeholder="Enter rate per unit"
+                style={{width:"100%",padding:"9px 12px",border:`1.5px solid ${C.border}`,borderRadius:8,
+                  fontSize:14,color:C.text,background:"#fff",fontFamily:"inherit",outline:"none"}}/>
+              <p style={{margin:"3px 0 0",fontSize:11,color:C.faint}}>
+                Total debit = ₹{rate?(parseFloat(rate)*(sel.payload?.quantity||1)).toFixed(2):"—"}
+              </p>
+            </div>
+          )}
+          <div style={{marginBottom:16}}>
+            <label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,
+              marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>
+              Rejection Reason <span style={{color:C.faint,textTransform:"none",fontWeight:400}}>(required if rejecting)</span>
+            </label>
+            <textarea value={note} onChange={e=>setNote(e.target.value)} rows={3}
+              placeholder="Enter reason for rejection…"
+              style={{width:"100%",padding:"9px 12px",border:`1.5px solid ${C.border}`,
+                borderRadius:8,fontSize:14,fontFamily:"inherit",resize:"vertical",outline:"none"}}/>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <Btn variant="success" onClick={approve} disabled={saving}>
+              <Ic d={I.check} s={14} col="#fff"/>Approve
+            </Btn>
+            <Btn variant="danger" onClick={reject} disabled={saving||!note.trim()}>
+              <Ic d={I.x} s={14} col="#fff"/>Reject
+            </Btn>
+            <Btn variant="ghost" onClick={()=>setSel(null)}>Cancel</Btn>
+          </div>
+        </div>
+      </div>
+    </div>}
+  </div>;
+};
+
+// ─── WORKER TRANSFER REQUEST ─────────────────────────────────────
+const WorkerTransferModal=({open,onClose,worker,sites,user,onSubmit})=>{
+  const [form,setForm]=useState({transfer_type:"permanent"});
+  const [saving,setSaving]=useState(false);
+  const {show,Toast}=useToast();
+  if(!open||!worker)return null;
+
+  const submit=async()=>{
+    if(!form.to_site_id){show("Select destination site","error");return;}
+    if(parseInt(form.to_site_id)===worker.current_site_id){show("Same site — pick different","error");return;}
+    setSaving(true);
+    const toSite=sites.find(s=>s.site_id===parseInt(form.to_site_id));
+    const fromSite=sites.find(s=>s.site_id===worker.current_site_id);
+    const {error}=await sb.from("approvals").insert({
+      approval_type:"worker_transfer",status:"pending",raised_by:user.user_id,
+      site_id:worker.current_site_id,approver_role:"SIC",
+      payload:{worker_id:worker.id,worker_name:worker.worker_name,
+        from_site_id:worker.current_site_id,from_site:fromSite?.site_name||"—",
+        to_site_id:parseInt(form.to_site_id),to_site:toSite?.site_name||"—",
+        transfer_type:form.transfer_type,notes:form.notes||"",
+        title:`Transfer ${worker.worker_name} → ${toSite?.site_name}`},
+      ref_id:worker.id,ref_table:"workers"
+    });
+    setSaving(false);
+    if(error){show(error.message,"error");return;}
+    show("Transfer request raised — awaiting SIC approval","warning");
+    onClose();onSubmit&&onSubmit();
+  };
+
+  return <div style={{position:"fixed",inset:0,zIndex:55,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <Toast/>
+    <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(15,23,42,.5)",backdropFilter:"blur(3px)"}}/>
+    <div style={{position:"relative",width:Math.min(440,window.innerWidth-32),background:"#fff",
+      borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,.2)"}}>
+      <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,
+        display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <h3 style={{margin:0,fontSize:16,fontWeight:800}}>Request Worker Transfer</h3>
+        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:C.muted}}><Ic d={I.x}/></button>
+      </div>
+      <div style={{padding:"20px"}}>
+        <div style={{background:"#F8FAFC",borderRadius:10,padding:"12px 14px",marginBottom:16}}>
+          <p style={{margin:0,fontWeight:700}}>{worker.worker_name} ({worker.worker_code})</p>
+          <p style={{margin:"3px 0 0",fontSize:12,color:C.muted}}>
+            Currently at: <b>{sites.find(s=>s.site_id===worker.current_site_id)?.site_name||"—"}</b>
+          </p>
+        </div>
+        <div style={{marginBottom:14}}>
+          <label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>Transfer To Site *</label>
+          <select value={form.to_site_id||""} onChange={e=>setForm(f=>({...f,to_site_id:e.target.value}))}
+            style={{width:"100%",padding:"9px 12px",border:`1.5px solid ${C.border}`,borderRadius:8,fontSize:14,color:form.to_site_id?C.text:C.muted,background:"#fff",fontFamily:"inherit"}}>
+            <option value="">— Select site —</option>
+            {sites.filter(s=>s.site_id!==worker.current_site_id).map(s=><option key={s.site_id} value={s.site_id}>{s.site_name}</option>)}
+          </select>
+        </div>
+        <div style={{marginBottom:14}}>
+          <label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>Transfer Type</label>
+          <select value={form.transfer_type||"permanent"} onChange={e=>setForm(f=>({...f,transfer_type:e.target.value}))}
+            style={{width:"100%",padding:"9px 12px",border:`1.5px solid ${C.border}`,borderRadius:8,fontSize:14,color:C.text,background:"#fff",fontFamily:"inherit"}}>
+            <option value="permanent">Permanent</option>
+            <option value="temporary">Temporary</option>
+          </select>
+        </div>
+        <div style={{marginBottom:16}}>
+          <label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>Notes</label>
+          <textarea value={form.notes||""} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} rows={2}
+            style={{width:"100%",padding:"9px 12px",border:`1.5px solid ${C.border}`,borderRadius:8,fontSize:14,fontFamily:"inherit",resize:"vertical",outline:"none"}}/>
+        </div>
+        <div style={{background:C.yellowBg,border:`1px solid ${C.yellow}40`,borderRadius:8,padding:"10px 14px",marginBottom:14}}>
+          <p style={{margin:0,fontSize:12,color:C.yellow,fontWeight:600}}>Transfer will go to SIC for approval before being executed.</p>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn onClick={submit} disabled={saving}>{saving?"Submitting…":"Submit Request"}</Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </div>
+  </div>;
+};
+
+// ─── DEBIT RATE MODAL ────────────────────────────────────────────
+const WorkerDebitModal=({open,onClose,worker,materials,user,onSubmit})=>{
+  const [form,setForm]=useState({});
+  const [saving,setSaving]=useState(false);
+  const {show,Toast}=useToast();
+  if(!open||!worker)return null;
+
+  const submit=async()=>{
+    if(!form.material_id||!form.quantity){show("Fill all fields","error");return;}
+    setSaving(true);
+    const mat=materials.find(m=>m.material_id===parseInt(form.material_id));
+    const {data:debit,error}=await sb.from("worker_debit_log").insert({
+      worker_id:worker.id,material_name:mat?.material_name||"",
+      quantity:parseFloat(form.quantity),reason:form.reason||"",
+      raised_by:user.user_id,site_id:worker.current_site_id,
+      salary_month:form.salary_month||null,status:"pending_approval"
+    }).select().single();
+    if(!error&&debit){
+      await sb.from("approvals").insert({
+        approval_type:"debit_rate",status:"pending",raised_by:user.user_id,
+        site_id:worker.current_site_id,approver_role:"SIC",
+        payload:{worker_id:worker.id,worker_name:worker.worker_name,
+          material_name:mat?.material_name,quantity:parseFloat(form.quantity),unit:mat?.unit,
+          reason:form.reason,title:`Debit — ${worker.worker_name} — ${mat?.material_name}`},
+        ref_id:debit.id,ref_table:"worker_debit_log"
+      });
+    }
+    setSaving(false);
+    if(error){show(error.message,"error");return;}
+    show("Debit request raised — SIC will set rate","warning");
+    onClose();onSubmit&&onSubmit();
+  };
+
+  const toolMats=materials.filter(m=>m.is_returnable||m.material_type==="Tool");
+  const matList=toolMats.length>0?toolMats:materials;
+
+  return <div style={{position:"fixed",inset:0,zIndex:55,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <Toast/>
+    <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(15,23,42,.5)",backdropFilter:"blur(3px)"}}/>
+    <div style={{position:"relative",width:Math.min(440,window.innerWidth-32),background:"#fff",
+      borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,.2)"}}>
+      <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,
+        display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <h3 style={{margin:0,fontSize:16,fontWeight:800}}>Raise Debit Rate Request</h3>
+        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:C.muted}}><Ic d={I.x}/></button>
+      </div>
+      <div style={{padding:"20px"}}>
+        <div style={{background:"#F8FAFC",borderRadius:10,padding:"12px 14px",marginBottom:16}}>
+          <p style={{margin:0,fontWeight:700}}>{worker.worker_name}</p>
+          <p style={{margin:"3px 0 0",fontSize:12,color:C.muted}}>Tool/material not returned — SIC will set debit rate</p>
+        </div>
+        <div style={{marginBottom:14}}>
+          <label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>Material / Tool *</label>
+          <select value={form.material_id||""} onChange={e=>setForm(f=>({...f,material_id:e.target.value}))}
+            style={{width:"100%",padding:"9px 12px",border:`1.5px solid ${C.border}`,borderRadius:8,fontSize:14,color:form.material_id?C.text:C.muted,background:"#fff",fontFamily:"inherit"}}>
+            <option value="">— Select material/tool —</option>
+            {matList.map(m=><option key={m.material_id} value={m.material_id}>{m.material_name} ({m.unit})</option>)}
+          </select>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+          <div style={{marginBottom:14}}>
+            <label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>Quantity *</label>
+            <input type="number" value={form.quantity||""} onChange={e=>setForm(f=>({...f,quantity:e.target.value}))}
+              style={{width:"100%",padding:"9px 12px",border:`1.5px solid ${C.border}`,borderRadius:8,fontSize:14,color:C.text,background:"#fff",fontFamily:"inherit",outline:"none"}}/>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>Salary Month</label>
+            <input type="month" value={form.salary_month||""} onChange={e=>setForm(f=>({...f,salary_month:e.target.value}))}
+              style={{width:"100%",padding:"9px 12px",border:`1.5px solid ${C.border}`,borderRadius:8,fontSize:14,color:C.text,background:"#fff",fontFamily:"inherit",outline:"none"}}/>
+          </div>
+        </div>
+        <div style={{marginBottom:16}}>
+          <label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>Reason</label>
+          <textarea value={form.reason||""} onChange={e=>setForm(f=>({...f,reason:e.target.value}))} rows={2}
+            style={{width:"100%",padding:"9px 12px",border:`1.5px solid ${C.border}`,borderRadius:8,fontSize:14,fontFamily:"inherit",resize:"vertical",outline:"none"}}/>
+        </div>
+        <div style={{background:C.yellowBg,border:`1px solid ${C.yellow}40`,borderRadius:8,padding:"10px 14px",marginBottom:14}}>
+          <p style={{margin:0,fontSize:12,color:C.yellow,fontWeight:600}}>SIC reviews and sets debit rate. Deduction applies to salary.</p>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn onClick={submit} disabled={saving}>{saving?"Submitting…":"Raise Request"}</Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </div>
+  </div>;
+};
+
+const NAV_EXTRA_ITEM = {id:"approvals",label:"Approvals",icon:I.approval,comp:Approvals,group:null};
+
+
+function App(){
+  const [session,setSession]=useState(null);
+  const [authUser,setAuthUser]=useState(null);
+  const [active,setActive]=useState("dashboard");
+  const [sideOpen,setSideOpen]=useState(false);
+  const [isMob,setIsMob]=useState(window.innerWidth<768);
+  const [pendingCount,setPending]=useState(0);
+
+  useEffect(()=>{
+    const fn=()=>setIsMob(window.innerWidth<768);
+    window.addEventListener("resize",fn);return()=>window.removeEventListener("resize",fn);
+  },[]);
+
+  useEffect(()=>{
+    sb.auth.getSession().then(({data:{session:s}})=>{
+      if(s){
+        sb.from("app_users").select("*,sites(site_name)").eq("auth_id",s.user.id).single()
+          .then(({data:profile})=>{
+            if(!profile||!profile.is_active){setSession(false);return;}
+            sb.from("policy_master").select("policy_id").eq("role_type",profile.role).single()
+              .then(({data:pol})=>{
+                if(!pol){setAuthUser({...profile,perms:[]});setSession(true);return;}
+                sb.from("policy_permissions").select("*").eq("policy_id",pol.policy_id)
+                  .then(({data:pp})=>{setAuthUser({...profile,perms:pp||[]});setSession(true);});
+              });
+          });
+      } else setSession(false);
+    });
+  },[]);
+
+  useEffect(()=>{
+    if(!authUser)return;
+    if(!["SIC","Admin","Office"].includes(authUser.role))return;
+    let q=sb.from("approvals").select("*",{count:"exact",head:true}).eq("status","pending");
+    if(authUser.role==="SIC"&&authUser.assigned_site_id) q=q.eq("site_id",authUser.assigned_site_id);
+    if(authUser.role==="Office") q=q.eq("approver_role","Office");
+    q.then(({count})=>setPending(count||0));
+  },[authUser,active]);
+
+  const logout=async()=>{
+    await sb.auth.signOut();
+    setAuthUser(null);setSession(false);setActive("dashboard");
+  };
+
+  if(session===null)return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",gap:10,color:C.muted}}>
+      <div style={{width:22,height:22,border:`2px solid ${C.border}`,borderTopColor:C.accent,
+        borderRadius:"50%",animation:"spin 1s linear infinite"}}/>
+      Loading SiteOS…
+    </div>
+  );
+
+  if(!session||!authUser) return <Login onLogin={u=>{setAuthUser(u);setSession(true);}}/>;
+
+  const visibleNav=NAV.filter(n=>{
+    if(!n.module) return true;
+    return hasPerm(authUser.perms,n.module,"can_view");
+  });
+
+  const Comp=visibleNav.find(n=>n.id===active)?.comp||Dashboard;
+
+  const NavItem=({item})=>{
+    const isA=active===item.id;
+    return <div onClick={()=>{setActive(item.id);setSideOpen(false);}}
+      style={{display:"flex",alignItems:"center",gap:9,padding:"9px 10px",borderRadius:8,
+        cursor:"pointer",margin:"1px 0",background:isA?C.sideActive:"transparent",
+        color:isA?"#fff":"#94A3B8",fontSize:13,fontWeight:isA?700:500,transition:"all .12s"}}>
+      <Ic d={item.icon} s={15} col={isA?"#fff":"#64748B"}/>
+      <span style={{flex:1}}>{item.label}</span>
+      {item.id==="approvals"&&pendingCount>0&&(
+        <span style={{background:C.red,color:"#fff",fontSize:10,fontWeight:800,
+          padding:"1px 6px",borderRadius:99,minWidth:18,textAlign:"center"}}>{pendingCount}</span>
+      )}
+      {["store_ops","labour","payroll","expense","procurement","dpr","compliance","reports"].includes(item.id)&&(
+        <span style={{fontSize:8,background:"#1E293B",color:"#4B5563",padding:"2px 4px",borderRadius:3,fontWeight:700}}>P2</span>
+      )}
+    </div>;
+  };
+
+  const groups=["Operations","Masters"];
+  const SideContent=()=><>
+    <div style={{padding:"16px 14px 12px",borderBottom:"1px solid #1E293B"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <div style={{width:34,height:34,background:C.accent,borderRadius:9,
+          display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+          <Ic d={I.building} s={17} col="#fff"/>
+        </div>
+        <div>
+          <p style={{margin:0,fontSize:14,fontWeight:800,color:"#F1F5F9"}}>SiteOS</p>
+          <p style={{margin:0,fontSize:9,color:"#475569",fontWeight:600,
+            textTransform:"uppercase",letterSpacing:".1em"}}>Construction ERP</p>
+        </div>
+      </div>
+    </div>
+    <div style={{flex:1,overflowY:"auto",padding:"8px"}}>
+      {visibleNav.filter(n=>!n.group).map(item=><NavItem key={item.id} item={item}/>)}
+      {groups.map(grp=>{
+        const items=visibleNav.filter(n=>n.group===grp);
+        if(!items.length)return null;
+        return <div key={grp}>
+          <p style={{margin:"12px 8px 4px",fontSize:9,fontWeight:700,color:"#374151",
+            textTransform:"uppercase",letterSpacing:".1em"}}>{grp}</p>
+          {items.map(item=><NavItem key={item.id} item={item}/>)}
+        </div>;
+      })}
+    </div>
+    <div style={{padding:"12px 14px",borderTop:"1px solid #1E293B"}}>
+      <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:10}}>
+        <div style={{width:32,height:32,borderRadius:"50%",background:C.accent,
+          display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+          <span style={{fontSize:13,fontWeight:800,color:"#fff"}}>{authUser.name[0].toUpperCase()}</span>
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <p style={{margin:0,fontSize:12,fontWeight:700,color:"#CBD5E1",
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{authUser.name}</p>
+          <Badge color={roleColor[authUser.role]||"gray"}>{authUser.role}</Badge>
+        </div>
+      </div>
+      <button onClick={logout}
+        style={{width:"100%",padding:"7px 10px",background:"rgba(220,38,38,.15)",
+          border:"1px solid rgba(220,38,38,.2)",borderRadius:8,color:"#FCA5A5",
+          fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",
+          gap:6,fontFamily:"inherit"}}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FCA5A5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4 M16 17l5-5-5-5 M21 12H9"/>
+        </svg>
+        Sign Out
+      </button>
+    </div>
+  </>;
+
+  return (
+    <AuthCtx.Provider value={{user:authUser,perms:authUser.perms}}>
+      <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
+        {!isMob&&<div style={{width:210,background:C.sidebar,display:"flex",flexDirection:"column",flexShrink:0}}>
+          <SideContent/>
+        </div>}
+        {isMob&&sideOpen&&<div style={{position:"fixed",inset:0,zIndex:60,display:"flex"}}>
+          <div style={{position:"absolute",left:0,top:0,bottom:0,width:210,
+            background:C.sidebar,display:"flex",flexDirection:"column",
+            boxShadow:"4px 0 20px rgba(0,0,0,.3)"}}>
+            <SideContent/>
+          </div>
+          <div style={{position:"absolute",left:210,right:0,top:0,bottom:0,
+            background:"rgba(0,0,0,.5)"}} onClick={()=>setSideOpen(false)}/>
+        </div>}
+        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
+          <div style={{height:50,background:C.card,borderBottom:`1px solid ${C.border}`,
+            display:"flex",alignItems:"center",padding:"0 16px",gap:12,flexShrink:0}}>
+            {isMob&&<button onClick={()=>setSideOpen(true)}
+              style={{background:"none",border:"none",cursor:"pointer",color:C.muted,
+                display:"flex",alignItems:"center",padding:4}}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 12h18 M3 6h18 M3 18h18"/>
+              </svg>
+            </button>}
+            <span style={{fontSize:14,fontWeight:700,flex:1}}>
+              {NAV.find(n=>n.id===active)?.label||"Dashboard"}
+            </span>
+            <Badge color={roleColor[authUser.role]||"gray"}>{authUser.role}</Badge>
+            {!isMob&&<span style={{fontSize:13,color:C.muted}}>{authUser.name}</span>}
+            {!isMob&&<button onClick={logout}
+              style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,
+                padding:"5px 10px",cursor:"pointer",color:C.muted,fontSize:12,
+                display:"flex",alignItems:"center",gap:5,fontFamily:"inherit"}}>
+              Sign Out
+            </button>}
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:isMob?14:22}}>
+            <Comp/>
+          </div>
+        </div>
+      </div>
+    </AuthCtx.Provider>
+  );
+}
+
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
