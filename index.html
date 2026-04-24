@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SiteOS — Construction ERP</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; }
+    .blur-backdrop { backdrop-filter: blur(8px); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo } = React;
+    
+    // ============================================
+    // SUPABASE CONFIGURATION
+    // ============================================
+    const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+    const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // ============================================
+    // UTILITY: Safe Async Operations
+    // ============================================
+    const safeAsync = async (operation, fallback = null) => {
+      try {
+        const result = await operation();
+        return { data: result, error: null };
+      } catch (error) {
+        console.error('Safe async error:', error);
+        return { data: fallback, error };
+      }
+    };
+
+    // ============================================
+    // AUTH WRAPPER
+    // ============================================
+    function AuthGate({ children }) {
+      const [user, setUser] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [authMode, setAuthMode] = useState('login');
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [error, setError] = useState('');
+
+      useEffect(() => {
+        // Check active session
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          setUser(session?.user ?? null);
+          setLoading(false);
+        });
+
+        // Listen for auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+          setUser(session?.user ?? null);
+        });
+
+        return () => subscription.unsubscribe();
+      }, []);
+
+      const handleAuth = async (e) => {
+        e.preventDefault();
+        setError('');
+        
+        const { data, error: authError } = authMode === 'login'
+          ? await supabase.auth.signInWithPassword({ email, password })
+          : await supabase.auth.signUp({ email, password });
+
+        if (authError) {
+          setError(authError.message);
+        }
+      };
+
+      const handleSignOut = async () => {
+        await supabase.auth.signOut();
+      };
+
+      if (loading) {
+        return (
+          <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+            <div className="text-white text-xl">Loading...</div>
+          </div>
+        );
+      }
+
+      if (!user) {
+        return (
+          <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+            <div className="bg-slate-800 p-8 rounded-lg shadow-xl max-w-md w-full">
+              <h1 className="text-3xl font-bold text-white mb-6 text-center">
+                SiteOS
+                <span className="block text-sm text-slate-400 mt-1">Construction ERP</span>
+              </h1>
+              
+              <form onSubmit={handleAuth} className="space-y-4">
+                <input
+                  type="email"
+                  placeholder="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-2 bg-slate-700 text-white rounded border border-slate-600 focus:border-blue-500 focus:outline-none"
+                  required
+                />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-2 bg-slate-700 text-white rounded border border-slate-600 focus:border-blue-500 focus:outline-none"
+                  required
+                />
+                
+                {error && (
+                  <div className="text-red-400 text-sm bg-red-900/20 p-2 rounded">
+                    {error}
+                  </div>
+                )}
+                
+                <button
+                  type="submit"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-medium transition"
+                >
+                  {authMode === 'login' ? 'Sign In' : 'Sign Up'}
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}
+                  className="w-full text-blue-400 hover:text-blue-300 text-sm transition"
+                >
+                  {authMode === 'login' ? 'Need an account? Sign up' : 'Have an account? Sign in'}
+                </button>
+              </form>
+            </div>
+          </div>
+        );
+      }
+
+      return children({ user, handleSignOut });
+    }
+
+    // ============================================
+    // MAIN APP
+    // ============================================
+    function SiteOS({ user, handleSignOut }) {
+      const [currentView, setCurrentView] = useState('workers');
+      const [currentSite, setCurrentSite] = useState('all');
+      const [workers, setWorkers] = useState([]);
+      const [sites, setSites] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [showNewWorker, setShowNewWorker] = useState(false);
+      const [showGTVModal, setShowGTVModal] = useState(false);
+      const [selectedWorker, setSelectedWorker] = useState(null);
+
+      // ============================================
+      // FETCH SITES
+      // ============================================
+      const fetchSites = async () => {
+        const { data, error } = await supabase
+          .from('sites')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('name');
+        
+        if (!error && data) {
+          setSites(data);
+        }
+      };
+
+      // ============================================
+      // FETCH WORKERS
+      // ============================================
+      const fetchWorkers = async () => {
+        setLoading(true);
+        
+        let query = supabase
+          .from('workers')
+          .select('*')
+          .eq('user_id', user.id);
+        
+        if (currentSite !== 'all') {
+          query = query.eq('site_id', currentSite);
+        }
+        
+        const { data, error } = await query.order('name');
+        
+        if (!error && data) {
+          setWorkers(data);
+        } else if (error) {
+          console.error('Error fetching workers:', error);
+        }
+        
+        setLoading(false);
+      };
+
+      useEffect(() => {
+        fetchSites();
+        fetchWorkers();
+      }, [currentSite, user.id]);
+
+      // ============================================
+      // WORKER STATS
+      // ============================================
+      const stats = useMemo(() => {
+        const active = workers.filter(w => w.status === 'active').length;
+        const gtv = workers.filter(w => w.status === 'gtv').length;
+        const left = workers.filter(w => w.status === 'left').length;
+        return { active, gtv, left };
+      }, [workers]);
+
+      // ============================================
+      // GTV MODAL COMPONENT
+      // ============================================
+      const GTVModal = () => {
+        const [gtvDate, setGtvDate] = useState(new Date().toISOString().split('T')[0]);
+        const [promiseDate, setPromiseDate] = useState('');
+        const [reason, setReason] = useState('');
+        const [processing, setProcessing] = useState(false);
+
+        const handleConfirmGTV = async () => {
+          if (!gtvDate) return;
+          
+          setProcessing(true);
+
+          const { error } = await supabase
+            .from('workers')
+            .update({
+              status: 'gtv',
+              gtv_date: gtvDate,
+              gtv_promise_date: promiseDate || null,
+              gtv_reason: reason || null,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', selectedWorker.id);
+
+          setProcessing(false);
+
+          if (!error) {
+            setShowGTVModal(false);
+            setSelectedWorker(null);
+            fetchWorkers();
+          } else {
+            console.error('GTV update error:', error);
+            alert('Failed to mark worker as GTV');
+          }
+        };
+
+        const canConfirmImmediately = workers.filter(
+          w => w.id === selectedWorker?.id && w.attendance_sessions === 0
+        ).length > 0;
+
+        return (
+          <div className="fixed inset-0 bg-black/50 blur-backdrop flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="text-xl font-bold text-slate-900">Mark Worker as GTV</h2>
+                <button
+                  onClick={() => {
+                    setShowGTVModal(false);
+                    setSelectedWorker(null);
+                  }}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {selectedWorker && (
+                <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded">
+                  <div className="font-medium text-slate-900">{selectedWorker.name}</div>
+                  <div className="text-sm text-slate-600">
+                    {selectedWorker.code} · {selectedWorker.trade} · ₹{selectedWorker.rate}/day
+                  </div>
+                </div>
+              )}
+
+              {!canConfirmImmediately && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-300 rounded text-sm text-amber-800">
+                  ⚠️ <strong>Urgent / Unregistered GTV</strong> — bypasses advance registration workflow.
+                  Attendance for days worker was present must be resolved before GTV is confirmed.
+                </div>
+              )}
+
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    GTV DATE <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={gtvDate}
+                    onChange={(e) => setGtvDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    PROMISE DATE (INFORMATIONAL)
+                  </label>
+                  <input
+                    type="date"
+                    value={promiseDate}
+                    onChange={(e) => setPromiseDate(e.target.value)}
+                    placeholder="mm/dd/yyyy"
+                    className="w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                  <div className="text-xs text-slate-500 mt-1">
+                    Date worker said they will return
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    REASON / NOTE (OPTIONAL)
+                  </label>
+                  <textarea
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="e.g. Family emergency, urgent departure..."
+                    rows={3}
+                    className="w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none"
+                  />
+                </div>
+              </div>
+
+              {canConfirmImmediately && (
+                <div className="mb-4 p-3 bg-green-50 border border-green-300 rounded text-sm text-green-800">
+                  ✓ No unsubmitted attendance sessions found — GTV can be confirmed immediately.
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowGTVModal(false);
+                    setSelectedWorker(null);
+                  }}
+                  className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded hover:bg-slate-50 transition"
+                  disabled={processing}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmGTV}
+                  disabled={!gtvDate || processing}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {processing ? 'Processing...' : 'Confirm GTV'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      // ============================================
+      // WORKER CARD COMPONENT
+      // ============================================
+      const WorkerCard = ({ worker }) => {
+        const siteName = sites.find(s => s.id === worker.site_id)?.name || 'Unknown Site';
+        
+        return (
+          <div className="bg-white border border-slate-200 rounded-lg p-4 hover:shadow-md transition">
+            <div className="flex justify-between items-start mb-2">
+              <div>
+                <div className="font-bold text-slate-900">{worker.name}</div>
+                <div className="text-sm text-slate-600">
+                  {worker.code} · {worker.trade}
+                </div>
+              </div>
+              <div className={`px-2 py-1 rounded text-xs font-medium ${
+                worker.status === 'active' ? 'bg-green-100 text-green-800' :
+                worker.status === 'gtv' ? 'bg-orange-100 text-orange-800' :
+                'bg-slate-100 text-slate-800'
+              }`}>
+                {worker.status.toUpperCase()}
+              </div>
+            </div>
+
+            <div className="text-sm text-slate-600 mb-3">
+              <div>{siteName}</div>
+              <div className="font-medium text-slate-900">₹{worker.rate}/day</div>
+            </div>
+
+            <div className="flex gap-2">
+              <button className="flex-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-sm transition">
+                Edit
+              </button>
+              {worker.status === 'active' && (
+                <button
+                  onClick={() => {
+                    setSelectedWorker(worker);
+                    setShowGTVModal(true);
+                  }}
+                  className="flex-1 px-3 py-1.5 bg-orange-100 hover:bg-orange-200 text-orange-700 rounded text-sm transition"
+                >
+                  GTV
+                </button>
+              )}
+              <button className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm transition">
+                ID Card
+              </button>
+            </div>
+          </div>
+        );
+      };
+
+      // ============================================
+      // MAIN RENDER
+      // ============================================
+      return (
+        <div className="min-h-screen bg-slate-50">
+          {/* HEADER */}
+          <div className="bg-slate-900 text-white shadow-lg">
+            <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                  <span className="text-xl font-bold">S</span>
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold">SiteOS</h1>
+                  <div className="text-xs text-slate-400">CONSTRUCTION ERP</div>
+                </div>
+              </div>
+              <button
+                onClick={handleSignOut}
+                className="text-sm text-slate-300 hover:text-white transition"
+              >
+                🚪 Sign Out
+              </button>
+            </div>
+          </div>
+
+          <div className="max-w-7xl mx-auto px-4 py-6">
+            {/* NAVIGATION */}
+            <div className="mb-6 flex gap-2 overflow-x-auto pb-2">
+              <button
+                onClick={() => setCurrentView('dashboard')}
+                className={`px-4 py-2 rounded whitespace-nowrap transition ${
+                  currentView === 'dashboard'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                Dashboard
+              </button>
+              <button
+                onClick={() => setCurrentView('workers')}
+                className={`px-4 py-2 rounded whitespace-nowrap transition ${
+                  currentView === 'workers'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                Workers
+              </button>
+              <button
+                onClick={() => setCurrentView('attendance')}
+                className={`px-4 py-2 rounded whitespace-nowrap transition ${
+                  currentView === 'attendance'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                Attendance
+              </button>
+            </div>
+
+            {/* WORKERS VIEW */}
+            {currentView === 'workers' && (
+              <>
+                {/* HEADER WITH FILTERS */}
+                <div className="bg-white rounded-lg shadow p-4 mb-6">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+                    <div>
+                      <h2 className="text-2xl font-bold text-slate-900">Workers</h2>
+                      <div className="text-sm text-slate-600">
+                        {stats.active} active · {stats.gtv} GTV · {stats.left} left
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowNewWorker(true)}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium transition"
+                    >
+                      + New Registration
+                    </button>
+                  </div>
+
+                  {/* SITE FILTER */}
+                  <select
+                    value={currentSite}
+                    onChange={(e) => setCurrentSite(e.target.value)}
+                    className="w-full sm:w-auto px-4 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  >
+                    <option value="all">All Sites</option>
+                    {sites.map(site => (
+                      <option key={site.id} value={site.id}>{site.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* WORKERS GRID */}
+                {loading ? (
+                  <div className="text-center py-12 text-slate-600">Loading workers...</div>
+                ) : workers.length === 0 ? (
+                  <div className="bg-white rounded-lg shadow p-12 text-center text-slate-600">
+                    No workers found
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {workers.map(worker => (
+                      <WorkerCard key={worker.id} worker={worker} />
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* DASHBOARD VIEW */}
+            {currentView === 'dashboard' && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h2 className="text-2xl font-bold text-slate-900 mb-4">Dashboard</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-4 bg-green-50 border border-green-200 rounded">
+                    <div className="text-sm text-green-600 font-medium">Active Workers</div>
+                    <div className="text-3xl font-bold text-green-900">{stats.active}</div>
+                  </div>
+                  <div className="p-4 bg-orange-50 border border-orange-200 rounded">
+                    <div className="text-sm text-orange-600 font-medium">GTV</div>
+                    <div className="text-3xl font-bold text-orange-900">{stats.gtv}</div>
+                  </div>
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded">
+                    <div className="text-sm text-slate-600 font-medium">Left</div>
+                    <div className="text-3xl font-bold text-slate-900">{stats.left}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ATTENDANCE VIEW */}
+            {currentView === 'attendance' && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h2 className="text-2xl font-bold text-slate-900 mb-4">Attendance</h2>
+                <p className="text-slate-600">Attendance module coming soon...</p>
+              </div>
+            )}
+          </div>
+
+          {/* GTV MODAL */}
+          {showGTVModal && <GTVModal />}
+        </div>
+      );
+    }
+
+    // ============================================
+    // ROOT RENDER
+    // ============================================
+    function App() {
+      return (
+        <AuthGate>
+          {({ user, handleSignOut }) => (
+            <SiteOS user={user} handleSignOut={handleSignOut} />
+          )}
+        </AuthGate>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
