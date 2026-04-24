@@ -1,0 +1,8 @@
+column_name,data_type
+wallet_id,integer
+user_id,uuid
+person_name,text
+role,text
+current_balance,numeric
+is_active,boolean
+created_at,timestamp with time zone
