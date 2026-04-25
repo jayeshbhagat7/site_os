@@ -11,19 +11,8 @@
 <meta name="application-name" content="SiteOS"/>
 <meta name="description" content="SiteOS — Construction ERP by Umiya Associates"/>
 <title>SiteOS — Construction ERP</title>
-<script>
-// Inject manifest only when hosted (not file:// or Claude preview)
-(function(){
-  const o=window.location.origin;
-  const hosted=o.startsWith('http')&&!o.includes('claudeusercontent.com')&&o!=='null';
-  if(hosted){
-    const l=document.createElement('link');
-    l.rel='manifest';l.href='manifest.json';
-    document.head.appendChild(l);
-  }
-})();
-</script>
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -7909,7 +7898,8 @@ const GTVRepository=()=>{
     if(actionType==="mark_left"){
       const {error}=await sb.from("workers").update({status:"Left"}).eq("id",sel.id);
       if(error){show(error.message,"error");setSaving(false);return;}
-      await sb.from("worker_history").insert({worker_id:sel.id,event_type:"left",
+     const { error: insertErr } = await sb.from("worker_history").insert({ /* keep your existing data payload here */ });
+if (insertErr) console.error("History Insert Error:", insertErr);,
         event_date:today_str,old_value:"GTV",new_value:"Left",
         changed_by:user.user_id,changed_by_name:user.name,
         notes:actionNote||"Marked Left from GTV Repository"}).catch(()=>{});
@@ -8846,21 +8836,7 @@ function App(){
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 <script>
-// Register service worker only when hosted (not in Claude preview or local file)
-if('serviceWorker' in navigator){
-  const origin=window.location.origin;
-  const isHosted=origin.startsWith('http')&&
-    !origin.includes('claudeusercontent.com')&&
-    origin!=='null'&&
-    window.location.protocol!=='file:';
-  if(isHosted){
-    window.addEventListener('load',()=>{
-      navigator.serviceWorker.register('sw.js')
-        .then(r=>console.log('SW registered'))
-        .catch(e=>console.log('SW registration failed',e));
-    });
-  }
-}
+
 // PWA install prompt
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt',(e)=>{
