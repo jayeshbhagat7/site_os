@@ -7891,19 +7891,57 @@ const GTVRepository=()=>{
   const fmtDate=(d)=>d?new Date(d).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}):"—";
 
   // ── Action ────────────────────────────────────────────────────
-  const doAction=async()=>{
-    if(!sel)return;
-    setSaving(true);
-    const today_str=new Date().toISOString().split("T")[0];
-    if(actionType==="mark_left"){
-      const {error}=await sb.from("workers").update({status:"Left"}).eq("id",sel.id);
-      if(error){show(error.message,"error");setSaving(false);return;}
-     const { error: insertErr } = await sb.from("worker_history").insert({ /* keep your existing data payload here */ });
-if (insertErr) console.error("History Insert Error:", insertErr);,
-        event_date:today_str,old_value:"GTV",new_value:"Left",
-        changed_by:user.user_id,changed_by_name:user.name,
-        notes:actionNote||"Marked Left from GTV Repository"}).catch(()=>{});
-      show("Marked as Left ✓","success");
+  const markWorkerLeft = async () => {
+  setSaving(true);
+  
+  try {
+    const today_str = new Date().toISOString().split('T')[0];
+    
+    // Update worker status
+    const { error } = await sb
+      .from("workers")
+      .update({ 
+        status: "Left",
+        left_date: today_str 
+      })
+      .eq("id", workerId);
+    
+    if (error) {
+      show(error.message, "error");
+      setSaving(false);
+      return;
+    }
+    
+    // Insert history record
+    const { error: insertErr } = await sb
+      .from("worker_history")
+      .insert({
+        worker_id: workerId,
+        event_date: today_str,
+        old_value: "GTV",
+        new_value: "Left",
+        changed_by: user.user_id,
+        changed_by_name: user.name,
+        notes: actionNote || "Marked Left from GTV Repository"
+      })
+      .select();
+    
+    if (insertErr) {
+      console.error("History Insert Error:", insertErr);
+      show("Worker updated but history failed to save", "warning");
+    } else {
+      show("Worker marked as Left successfully", "success");
+    }
+    
+    setSaving(false);
+    // Close modal or refresh data here
+    
+  } catch (err) {
+    console.error("Unexpected error:", err);
+    show("An unexpected error occurred", "error");
+    setSaving(false);
+  }
+};
     } else if(actionType==="rejoin"){
       if(!rejoinSite){show("Select a site to rejoin","error");setSaving(false);return;}
       const updates={status:"Active",current_site_id:parseInt(rejoinSite),
