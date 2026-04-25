@@ -11,8 +11,19 @@
 <meta name="application-name" content="SiteOS"/>
 <meta name="description" content="SiteOS — Construction ERP by Umiya Associates"/>
 <title>SiteOS — Construction ERP</title>
-
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script>
+// Inject manifest only when hosted (not file:// or Claude preview)
+(function(){
+  const o=window.location.origin;
+  const hosted=o.startsWith('http')&&!o.includes('claudeusercontent.com')&&o!=='null';
+  if(hosted){
+    const l=document.createElement('link');
+    l.rel='manifest';l.href='manifest.json';
+    document.head.appendChild(l);
+  }
+})();
+</script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -1887,13 +1898,15 @@ const WorkerMaster=()=>{
     }).eq("id",gtvWorker.id);
     if(error){show(error.message,"error");setGtvSaving(false);return;}
     // 3. Log history
-    await sb.from("worker_history").insert({
-      worker_id:gtvWorker.id,event_type:"gtv",
-      event_date:gtvForm.gtv_date,
-      old_value:"Active",new_value:"GTV",
-      changed_by:user.user_id,changed_by_name:user.name,
-      notes:gtvForm.note||(openSessions.length>0?`Urgent GTV — ${openSessions.length} session(s) resolved`:"Urgent/unregistered GTV"),
-    }).catch(()=>{});
+    try {
+      await sb.from("worker_history").insert({
+        worker_id:gtvWorker.id,event_type:"gtv",
+        event_date:gtvForm.gtv_date,
+        old_value:"Active",new_value:"GTV",
+        changed_by:user.user_id,changed_by_name:user.name,
+        notes:gtvForm.note||(openSessions.length>0?`Urgent GTV — ${openSessions.length} session(s) resolved`:"Urgent/unregistered GTV"),
+      });
+    } catch(e) {}
     setGtvSaving(false);
     show(`${gtvWorker.worker_name} marked GTV ✓`,"success");
     setGtvOpen(false);setGtvWorker(null);setGtvForm({});setOpenSessions([]);
@@ -1908,20 +1921,24 @@ const WorkerMaster=()=>{
     const today_str=new Date().toISOString().split("T")[0];
     if(gtvActType==="mark_left"){
       await sb.from("workers").update({status:"Left"}).eq("id",gtvActWorker.id);
-      await sb.from("worker_history").insert({worker_id:gtvActWorker.id,event_type:"left",
-        event_date:today_str,old_value:"GTV",new_value:"Left",
-        changed_by:user.user_id,changed_by_name:user.name,
-        notes:gtvActNote||"Marked Left from Workers screen"}).catch(()=>{});
+      try {
+        await sb.from("worker_history").insert({worker_id:gtvActWorker.id,event_type:"left",
+          event_date:today_str,old_value:"GTV",new_value:"Left",
+          changed_by:user.user_id,changed_by_name:user.name,
+          notes:gtvActNote||"Marked Left from Workers screen"});
+      } catch(e) {}
       show("Marked as Left ✓","success");
     } else {
       const updates={status:"Active",current_site_id:parseInt(gtvRejoinSite),
         gtv_date:null,gtv_promise_date:null,is_active:true,date_joined:gtvRejoinDate||today_str};
       if(gtvRejoinRate&&parseFloat(gtvRejoinRate)>0)updates.per_day_rate=parseFloat(gtvRejoinRate);
       await sb.from("workers").update(updates).eq("id",gtvActWorker.id);
-      await sb.from("worker_history").insert({worker_id:gtvActWorker.id,event_type:"rejoin",
-        event_date:today_str,old_value:"GTV",new_value:"Active",
-        changed_by:user.user_id,changed_by_name:user.name,
-        notes:gtvActNote||`Rejoined at ${sites.find(s=>s.site_id===parseInt(gtvRejoinSite))?.site_name}`}).catch(()=>{});
+      try {
+        await sb.from("worker_history").insert({worker_id:gtvActWorker.id,event_type:"rejoin",
+          event_date:today_str,old_value:"GTV",new_value:"Active",
+          changed_by:user.user_id,changed_by_name:user.name,
+          notes:gtvActNote||`Rejoined at ${sites.find(s=>s.site_id===parseInt(gtvRejoinSite))?.site_name}`});
+      } catch(e) {}
       show("Worker rejoined ✓","success");
     }
     setGtvActSaving(false);setGtvActOpen(false);setGtvActWorker(null);
@@ -7891,58 +7908,21 @@ const GTVRepository=()=>{
   const fmtDate=(d)=>d?new Date(d).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}):"—";
 
   // ── Action ────────────────────────────────────────────────────
-  const markWorkerLeft = async () => {
-  setSaving(true);
-  
-  try {
-    const today_str = new Date().toISOString().split('T')[0];
-    
-    // Update worker status
-    const { error } = await sb
-      .from("workers")
-      .update({ 
-        status: "Left",
-        left_date: today_str 
-      })
-      .eq("id", workerId);
-    
-    if (error) {
-      show(error.message, "error");
-      setSaving(false);
-      return;
-    }
-    
-    // Insert history record
-    const { error: insertErr } = await sb
-      .from("worker_history")
-      .insert({
-        worker_id: workerId,
-        event_date: today_str,
-        old_value: "GTV",
-        new_value: "Left",
-        changed_by: user.user_id,
-        changed_by_name: user.name,
-        notes: actionNote || "Marked Left from GTV Repository"
-      })
-      .select();
-    
-    if (insertErr) {
-      console.error("History Insert Error:", insertErr);
-      show("Worker updated but history failed to save", "warning");
-    } else {
-      show("Worker marked as Left successfully", "success");
-    }
-    
-    setSaving(false);
-    // Close modal or refresh data here
-    
-  } catch (err) {
-    console.error("Unexpected error:", err);
-    show("An unexpected error occurred", "error");
-    setSaving(false);
-  }
-
-  }  else if(actionType==="rejoin"){
+  const doAction=async()=>{
+    if(!sel)return;
+    setSaving(true);
+    const today_str=new Date().toISOString().split("T")[0];
+    if(actionType==="mark_left"){
+      const {error}=await sb.from("workers").update({status:"Left"}).eq("id",sel.id);
+      if(error){show(error.message,"error");setSaving(false);return;}
+      try {
+        await sb.from("worker_history").insert({worker_id:sel.id,event_type:"left",
+          event_date:today_str,old_value:"GTV",new_value:"Left",
+          changed_by:user.user_id,changed_by_name:user.name,
+          notes:actionNote||"Marked Left from GTV Repository"});
+      } catch(e) {}
+      show("Marked as Left ✓","success");
+    } else if(actionType==="rejoin"){
       if(!rejoinSite){show("Select a site to rejoin","error");setSaving(false);return;}
       const updates={status:"Active",current_site_id:parseInt(rejoinSite),
         gtv_date:null,gtv_promise_date:null,is_active:true,
@@ -7950,10 +7930,12 @@ const GTVRepository=()=>{
       if(rejoinRate&&parseFloat(rejoinRate)>0)updates.per_day_rate=parseFloat(rejoinRate);
       const {error}=await sb.from("workers").update(updates).eq("id",sel.id);
       if(error){show(error.message,"error");setSaving(false);return;}
-      await sb.from("worker_history").insert({worker_id:sel.id,event_type:"rejoin",
-        event_date:today_str,old_value:"GTV",new_value:"Active",
-        changed_by:user.user_id,changed_by_name:user.name,
-        notes:actionNote||`Rejoined at ${sites.find(s=>s.site_id===parseInt(rejoinSite))?.site_name}`}).catch(()=>{});
+      try {
+        await sb.from("worker_history").insert({worker_id:sel.id,event_type:"rejoin",
+          event_date:today_str,old_value:"GTV",new_value:"Active",
+          changed_by:user.user_id,changed_by_name:user.name,
+          notes:actionNote||`Rejoined at ${sites.find(s=>s.site_id===parseInt(rejoinSite))?.site_name}`});
+      } catch(e) {}
       show("Worker rejoined successfully ✓","success");
     }
     setSaving(false);setActionOpen(false);setSel(null);
@@ -8874,7 +8856,21 @@ function App(){
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 <script>
-
+// Register service worker only when hosted (not in Claude preview or local file)
+if('serviceWorker' in navigator){
+  const origin=window.location.origin;
+  const isHosted=origin.startsWith('http')&&
+    !origin.includes('claudeusercontent.com')&&
+    origin!=='null'&&
+    window.location.protocol!=='file:';
+  if(isHosted){
+    window.addEventListener('load',()=>{
+      navigator.serviceWorker.register('sw.js')
+        .then(r=>console.log('SW registered'))
+        .catch(e=>console.log('SW registration failed',e));
+    });
+  }
+}
 // PWA install prompt
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt',(e)=>{
