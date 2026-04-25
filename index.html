@@ -7942,7 +7942,7 @@ const GTVRepository=()=>{
     setSaving(false);
   }
 };
-    } else if(actionType==="rejoin"){
+     else if(actionType==="rejoin"){
       if(!rejoinSite){show("Select a site to rejoin","error");setSaving(false);return;}
       const updates={status:"Active",current_site_id:parseInt(rejoinSite),
         gtv_date:null,gtv_promise_date:null,is_active:true,
