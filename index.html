@@ -48,23 +48,16 @@ const sb=createClient(
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5peHVzdnFic2xva2lleHh4dGljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4ODM0NzIsImV4cCI6MjA4ODQ1OTQ3Mn0.DyFJ48Iryl5cSKB1fZbuNdcge30y0vevEKaR2UyKaLQ"
 );
 
-// Admin auth operations MUST run on backend only.
-// Expected endpoint: POST /api/admin/auth
-// Body: { action: "createUser"|"updateUserById", payload: {...} }
-async function callAdminAuth(action,payload){
-  const res=await fetch("/api/admin/auth",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({action,payload}),
-  });
-  let out=null;
-  try{out=await res.json();}catch{out=null;}
-  if(!res.ok){
-    throw new Error(out?.error||`Admin auth request failed (${res.status})`);
-  }
-  if(out?.error)throw new Error(out.error);
-  return out?.data??out;
-}
+const SERVICE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5peHVzdnFic2xva2lleHh4dGljIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Mjg4MzQ3MiwiZXhwIjoyMDg4NDU5NDcyfQ.wJ8psPHNvrAQSPtx0n2AL2WIsqqzWiqr78zSthRnYmI";
+window.__SUPABASE_SERVICE_KEY__=SERVICE_KEY;
+
+// Admin client — uses service_role key, required for auth.admin operations
+// (createUser, updateUserById, deleteUser)
+const sbAdmin=createClient(
+  "https://nixusvqbslokiexxxtic.supabase.co",
+  SERVICE_KEY,
+  {auth:{autoRefreshToken:false,persistSession:false,storageKey:"siteos-admin"}}
+);
 
 // ─── AUTH CONTEXT ───────────────────────────────────────────────
 const AuthCtx=createContext(null);
@@ -1127,12 +1120,12 @@ const UserMaster=()=>{
     try{
       let auth_id=editing?.auth_id||null;
       if(!editing){
-        // Create auth user through backend admin endpoint
-        const au=await callAdminAuth("createUser",{
+        // Create auth user via Supabase
+        const {data:au,error:ae}=await sbAdmin.auth.admin.createUser({
           email:form.email.trim(),password:form.password,email_confirm:true
         });
-        auth_id=au?.user?.id||null;
-        if(!auth_id)throw new Error("Admin endpoint did not return auth user id");
+        if(ae)throw ae;
+        auth_id=au.user.id;
       }
       const selectedSiteIds=(form._assignedSiteIds||[]).map(Number).filter(Boolean);
       const p={name:form.name.trim(),email:form.email?.trim()||editing?.email,
@@ -1158,8 +1151,8 @@ const UserMaster=()=>{
       show(editing?"Updated ✓":"User created ✓ — they can now login");
       setOpen(false);load();
     }catch(err){
-      // Fallback: if backend admin endpoint is unavailable, create profile only
-      if(err.message?.includes("admin")||err.message?.includes("service_role")||err.message?.includes("endpoint")||err.message?.includes("failed")){
+      // Fallback: if admin API not available, create profile only
+      if(err.message?.includes("admin")||err.message?.includes("service_role")){
         const selectedSiteIdsFb=(form._assignedSiteIds||[]).map(Number).filter(Boolean);
         const p={name:form.name.trim(),email:form.email?.trim()||editing?.email,
           phone:form.phone||null,role:form.role,
@@ -1189,7 +1182,8 @@ const UserMaster=()=>{
     if(!editing?.auth_id){show("User has no auth account linked","error");return;}
     setSaving(true);
     try{
-      await callAdminAuth("updateUserById",{id:editing.auth_id,attributes:{password:newPass}});
+      const {error}=await sbAdmin.auth.admin.updateUserById(editing.auth_id,{password:newPass});
+      if(error)throw error;
       show("Password reset ✓");setPassMode(false);setNewPass("");
     }catch(e){
       show("Password reset failed: "+e.message,"error");
@@ -1204,10 +1198,11 @@ const UserMaster=()=>{
     if(!editing?.auth_id){show("User has no auth account linked","error");return;}
     setSaving(true);
     try{
-      // Update in Supabase Auth via backend admin endpoint
-      await callAdminAuth("updateUserById",{id:editing.auth_id,attributes:{
+      // Update in Supabase Auth (service_role bypasses confirmation)
+      const {error:ae}=await sbAdmin.auth.admin.updateUserById(editing.auth_id,{
         email:newEmail.trim(),email_confirm:true
-      }});
+      });
+      if(ae)throw ae;
       // Sync email in app_users table
       const {error:pe}=await sb.from("app_users").update({email:newEmail.trim()}).eq("user_id",editing.user_id);
       if(pe)throw pe;
@@ -3613,6 +3608,43 @@ const MyProfile = ({user, open, onClose, onUpdate}) => {
     </div>
   </div>;
 };
+const ServiceKeySetup = ({onSave}) => {
+  const [key,setKey]=React.useState(window.__SUPABASE_SERVICE_KEY__||"");
+  const save=()=>{
+    if(!key.trim()||!key.includes(".")){alert("Paste the full service_role JWT key from Supabase Settings API page");return;}
+    window.__SUPABASE_SERVICE_KEY__=key.trim();
+    if(onSave) onSave();
+    alert("Service key saved! User creation is now active.");
+  };
+  return <div style={{maxWidth:560}}>
+    <div style={{background:"#FEF3C7",border:"1px solid #FCD34D",borderRadius:12,
+      padding:"16px 20px",marginBottom:20}}>
+      <p style={{margin:0,fontWeight:800,fontSize:14,color:"#92400E"}}>Service Role Key Required for User Creation</p>
+      <p style={{margin:"6px 0 0",fontSize:12,color:"#92400E",lineHeight:1.6}}>
+        Needed once per session to create login accounts. Stored in browser memory only — re-enter after page refresh.
+      </p>
+    </div>
+    <ol style={{fontSize:13,color:C.muted,lineHeight:2.2,paddingLeft:20,marginBottom:20}}>
+      <li>Go to <b>supabase.com</b> and open your project</li>
+      <li>Click <b>Settings (gear icon) then API</b></li>
+      <li>Under <b>Project API keys</b>, copy the <b>service_role</b> key (long JWT)</li>
+      <li>Paste below and click Save</li>
+    </ol>
+    <div style={{marginBottom:14}}>
+      <label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>service_role Key</label>
+      <input id="mengram_key" name="mengram_key" value={key} onChange={e=>setKey(e.target.value)}
+        placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        style={{width:"100%",padding:"10px 12px",border:"1.5px solid #E2E8F0",
+          borderRadius:8,fontSize:12,fontFamily:"monospace",color:"#0F172A",background:"#fff",outline:"none"}}/>
+    </div>
+    {window.__SUPABASE_SERVICE_KEY__&&<p style={{fontSize:12,color:"#16A34A",marginBottom:10,fontWeight:700}}>Key is set — user creation is active</p>}
+    <Btn onClick={save}>Save Key for This Session</Btn>
+    <p style={{marginTop:10,fontSize:11,color:"#94A3B8"}}>This key never leaves your browser and is not stored permanently.</p>
+  </div>;
+};
+
+
+
 // ─── REFERENCE WORKER SEARCH WIDGET ──────────────────────────────
 // Used in Labour Entry wizard Step 2 — Emergency Contact section.
 // Logic:
@@ -4766,8 +4798,8 @@ const LabourEntry=()=>{
   const STEPS=["Site & Trade","Personal Details","ID & Bank","Documents","PPE Issue","Review & Submit"];
 
   const stepValid=()=>{
-    if(wizStep===1)return !!(form.worker_code&&form.worker_name&&form.trade&&form.current_site_id&&form.date_joined);
-    if(wizStep===2)return true;
+    if(wizStep===1)return !!(form.worker_code&&form.trade&&form.current_site_id&&form.date_joined);
+    if(wizStep===2)return !!form.worker_name; // Worker name is required in step 2
     if(wizStep===3)return true;
     if(wizStep===4)return true;
     if(wizStep===5)return true;
