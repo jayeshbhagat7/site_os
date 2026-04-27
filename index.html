@@ -246,18 +246,19 @@ const SlideOver=({open,onClose,title,subtitle,children,width=500})=>{
 const Modal=({open,onClose,title,children,width=420})=>{
   if(!open)return null;
   return <div style={{position:"fixed",inset:0,zIndex:60,display:"flex",
-    alignItems:"center",justifyContent:"center",padding:16}}>
-    <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(15,23,42,.5)",backdropFilter:"blur(3px)"}}/>
+    alignItems:"flex-start",justifyContent:"center",padding:"20px 16px",overflowY:"auto"}}>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.5)",backdropFilter:"blur(3px)"}}/> 
     <div style={{position:"relative",width:Math.min(width,window.innerWidth-32),
-      background:"#fff",borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,.2)",animation:"slideUp .2s ease"}}>
+      background:"#fff",borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,.2)",animation:"slideUp .2s ease",
+      maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
       <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,
-        display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
         <h3 style={{margin:0,fontSize:16,fontWeight:800}}>{title}</h3>
         <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:C.muted}}>
           <Ic d={I.x}/>
         </button>
       </div>
-      <div style={{padding:"20px"}}>{children}</div>
+      <div style={{padding:"20px",overflowY:"auto",flex:1}}>{children}</div>
     </div>
   </div>;
 };
@@ -4468,25 +4469,53 @@ const LabourEntry=()=>{
   const openNew=()=>{
     setEditWorker(null);
     const today=new Date().toISOString().split("T")[0];
-    // Auto-generate next code
-    const maxCode=workers.reduce((mx,w)=>{
-      const n=parseInt((w.worker_code||"").replace(/\D/g,""));
-      return n>mx?n:mx;
-    },0);
+    // Determine default site: if user has exactly 1 assigned site use it, otherwise pick first site
+    let defaultSite=null;
+    if(!isUnrestricted&&assignedSiteIds.length>0){
+      // Try to find the single assigned site or the first one
+      defaultSite=sites.find(s=>s.site_id===assignedSiteIds[0])||null;
+    } else if(sites.length>0){
+      defaultSite=sites[0];
+    }
+    // Auto-generate next code based on site's job_id prefix
+    let workerCode="UA-00001";
+    if(defaultSite?.job_id){
+      const siteCode=defaultSite.job_id;
+      const siteWorkers=workers.filter(w=>w.worker_code?.startsWith(siteCode+"-"));
+      const maxNum=siteWorkers.reduce((mx,w)=>{
+        const n=parseInt((w.worker_code??"").split("-").pop()||"0");
+        return n>mx?n:mx;
+      },0);
+      workerCode=`${siteCode}-${String(maxNum+1).padStart(5,"0")}`;
+    } else {
+      const maxCode=workers.reduce((mx,w)=>{
+        const n=parseInt((w.worker_code||"").replace(/\D/g,""));
+        return n>mx?n:mx;
+      },0);
+      workerCode=`UA-${String(maxCode+1).padStart(5,"0")}`;
+    }
     setForm({
-      worker_code:`UA-${String(maxCode+1).padStart(5,"0")}`,
+      worker_code:workerCode,
       status:"draft",worker_type:"Daily Wage",bank_account_type:"SB",
       esic_eligible:true,is_active:true,
       date_joined:today,
       helmet_issued:false,belt_issued:false,gumboot_issued:false,
       married:false,children_count:0,
+      current_site_id:defaultSite?String(defaultSite.site_id):"",
+      job_no:defaultSite?.job_id||"",
+      first_name:"",father_name:"",surname:"",
     });
     setWizStep(1);setWizOpen(true);
   };
 
   const openEdit=w=>{
     setEditWorker(w);
+    // Parse name parts if not stored separately
+    const nameParts=(w.worker_name||"").trim().split(/\s+/);
+    const first_name=w.first_name||nameParts[0]||"";
+    const surname=w.surname||nameParts.slice(-1)[0]||"";
     setForm({...w,
+      first_name,surname,
       helmet_issued:false,
       belt_issued:false,
       gumboot_issued:false,
@@ -4555,6 +4584,8 @@ const LabourEntry=()=>{
     const payload={
       worker_code:(form.worker_code||"").trim(),
       worker_name:(form.worker_name||"").trim(),
+      first_name:form.first_name||null,
+      surname:form.surname||null,
       father_name:form.father_name||null,
       mother_name:form.mother_name||null,
       trade:form.trade,
@@ -4599,6 +4630,7 @@ const LabourEntry=()=>{
       esic_eligible:form.esic_eligible!==false,
       consent_given:!!form.consent_given,
       consent_date:form.consent_date||null,
+      tenant_id:user.tenant_id||null,
     };
 
     let workerId=editWorker?.id;
@@ -4672,8 +4704,8 @@ const LabourEntry=()=>{
 
   // Save Draft — persists current form to DB without closing wizard or changing step
   const saveDraft=async()=>{
-    if(!form.worker_name?.trim()){show("Worker name is required to save draft","error");return;}
-    if(!form.trade){show("Select a trade to save draft","error");return;}
+    if(!form.worker_code?.trim()){show("Worker code is required to save draft","error");return;}
+    if(!form.current_site_id){show("Select a site to save draft","error");return;}
     setDraftSaving(true);
 
     // Upload any staged files (graceful — won't fail if bucket missing)
@@ -4688,10 +4720,12 @@ const LabourEntry=()=>{
 
     const draftPayload={
       worker_code:(form.worker_code||"").trim(),
-      worker_name:(form.worker_name||"").trim(),
+      worker_name:(form.worker_name||"").trim()||"(Draft)",
+      first_name:form.first_name||null,
+      surname:form.surname||null,
       father_name:form.father_name||null,
       mother_name:form.mother_name||null,
-      trade:form.trade,
+      trade:form.trade||"(TBD)",
       worker_type:form.worker_type||"Daily Wage",
       dob:form.dob||null,
       blood_group:form.blood_group||null,
@@ -4731,6 +4765,7 @@ const LabourEntry=()=>{
       is_active:true,
       is_bob_midc_branch:!!form.is_bob_midc_branch,
       esic_eligible:form.esic_eligible!==false,
+      tenant_id:user.tenant_id||null,
     };
 
     if(editWorker){
@@ -4799,7 +4834,7 @@ const LabourEntry=()=>{
 
   const stepValid=()=>{
     if(wizStep===1)return !!(form.worker_code&&form.trade&&form.current_site_id&&form.date_joined);
-    if(wizStep===2)return !!form.worker_name; // Worker name is required in step 2
+    if(wizStep===2)return !!(form.first_name||form.worker_name); // first name or full name required
     if(wizStep===3)return true;
     if(wizStep===4)return true;
     if(wizStep===5)return true;
@@ -4959,8 +4994,12 @@ const LabourEntry=()=>{
       <div style={{display:"flex",gap:0,marginBottom:20,overflowX:"auto",paddingBottom:2}}>
         {STEPS.map((s,i)=>{
           const n=i+1;const done=wizStep>n;const active=wizStep===n;
+          const step1Done=!!(form.worker_code&&form.trade&&form.current_site_id&&form.date_joined);
+          const canGo=n===1||(step1Done&&(n<=wizStep+1||editWorker));
           return <div key={n} style={{display:"flex",alignItems:"center",flex:1,minWidth:0}}>
-            <div style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1,minWidth:0}}>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1,minWidth:0,
+              cursor:canGo?"pointer":"default",opacity:canGo?1:0.5}}
+              onClick={()=>{if(canGo)setWizStep(n);}}>
               <div style={{width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",
                 justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0,
                 background:done?"#16a34a":active?C.accent:"#E2E8F0",
@@ -4983,13 +5022,45 @@ const LabourEntry=()=>{
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
           <Inp label="Worker Code *" value={form.worker_code||""}
             onChange={e=>F({worker_code:e.target.value})}/>
-          <Inp label="Job No." value={form.job_no||""}
-            onChange={e=>F({job_no:e.target.value})} placeholder="e.g. JOB-2025-001"/>
+          <Sel label="Job No." value={form.job_no||""}
+            placeholder="— Select Job No. —"
+            options={sites.filter(s=>s.job_id).map(s=>({v:s.job_id,l:`${s.job_id} — ${s.site_name}`}))}
+            onChange={e=>{
+              const jobId=e.target.value;
+              const site=sites.find(s=>s.job_id===jobId);
+              if(site){
+                // Auto-generate code for this site
+                const siteCode=site.job_id;
+                const siteWorkers=workers.filter(w=>w.worker_code?.startsWith(siteCode+"-"));
+                const maxNum=siteWorkers.reduce((mx,w)=>{
+                  const n=parseInt((w.worker_code??"").split("-").pop()||"0");
+                  return n>mx?n:mx;
+                },0);
+                const newCode=`${siteCode}-${String(maxNum+1).padStart(5,"0")}`;
+                F({job_no:jobId,current_site_id:String(site.site_id),worker_code:newCode,_jobNoManual:true});
+              } else {
+                F({job_no:jobId,_jobNoManual:true});
+              }
+            }}/>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
           <Sel label="Site *" value={form.current_site_id||""}
             options={sites.map(s=>({v:s.site_id,l:s.site_name}))}
-            onChange={e=>F({current_site_id:e.target.value,current_store_id:"",building_id:""})}/>
+            onChange={e=>{
+              const siteId=e.target.value;
+              const site=sites.find(s=>String(s.site_id)===String(siteId));
+              if(site&&site.job_id){
+                const siteCode=site.job_id;
+                const siteWorkers=workers.filter(w=>w.worker_code?.startsWith(siteCode+"-"));
+                const maxNum=siteWorkers.reduce((mx,w)=>{
+                  const n=parseInt((w.worker_code??"").split("-").pop()||"0");
+                  return n>mx?n:mx;
+                },0);
+                F({current_site_id:siteId,job_no:site.job_id,worker_code:`${siteCode}-${String(maxNum+1).padStart(5,"0")}`,current_store_id:"",building_id:""});
+              } else {
+                F({current_site_id:siteId,current_store_id:"",building_id:""});
+              }
+            }}/>
           <Sel label="Building / Tower" value={form.building_id||""}
             placeholder={form.current_site_id?"— Optional —":"Select site first"}
             options={buildings.map(b=>({v:b.id,l:b.building_name+(b.building_code?` (${b.building_code})`:"")})) }
@@ -5013,17 +5084,20 @@ const LabourEntry=()=>{
       {wizStep===2&&<div>
         <Divider label="Full Name"/>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 10px"}}>
-          <Inp label="First Name *" value={form.worker_name?.split(" ")[0]||form.worker_name||""}
+          <Inp label="First Name *" value={form.first_name||""}
             onChange={e=>{
-              const parts=form.worker_name?.split(" ")||[];
-              F({worker_name:[e.target.value,...parts.slice(1)].join(" ").trim()});
+              const fn=e.target.value;
+              F({first_name:fn,worker_name:[fn,form.father_name||"",form.surname||""].filter(Boolean).join(" ")});
             }}/>
           <Inp label="Father Name" value={form.father_name||""}
-            onChange={e=>F({father_name:e.target.value})}/>
-          <Inp label="Surname" value={form.worker_name?.split(" ").slice(-1)[0]||""}
             onChange={e=>{
-              const base=form.worker_name?.split(" ").slice(0,-1).join(" ")||"";
-              F({worker_name:(base+" "+e.target.value).trim()});
+              const fn=e.target.value;
+              F({father_name:fn,worker_name:[form.first_name||"",fn,form.surname||""].filter(Boolean).join(" ")});
+            }}/>
+          <Inp label="Surname" value={form.surname||""}
+            onChange={e=>{
+              const sn=e.target.value;
+              F({surname:sn,worker_name:[form.first_name||"",form.father_name||"",sn].filter(Boolean).join(" ")});
             }}/>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
@@ -5307,8 +5381,8 @@ const LabourEntry=()=>{
           {wizStep>1?"← Back":"Cancel"}
         </Btn>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          {/* Save Draft — available on every step from step 1 once name+trade filled */}
-          {(form.worker_name?.trim()&&form.trade)&&<Btn
+          {/* Save Draft — available from step 1 once worker_code and site are filled */}
+          {(form.worker_code?.trim()&&form.current_site_id)&&<Btn
             variant="secondary"
             onClick={saveDraft}
             disabled={draftSaving}
