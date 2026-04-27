@@ -4328,63 +4328,120 @@ const WorkerPrintForm=({worker:printWorker,onClose})=>{
 
 
 // ── Worker ID Card ────────────────────────────────────────────────
-const WorkerIdCard=({worker:idCardWorker,onClose})=>{
-  if(!idCardWorker)return null;
-  return <Modal open={!!idCardWorker} onClose={onClose} title="Identity Card" width={400}>
-    <div id="id-card-print" style={{border:"2.5px solid #1D4ED8",borderRadius:14,overflow:"hidden",
-      background:"#fff",maxWidth:340,margin:"0 auto"}}>
-      <div style={{background:"linear-gradient(135deg,#0F172A,#1D4ED8)",
-        padding:"12px 16px",textAlign:"center"}}>
-        <p style={{margin:0,color:"#fff",fontWeight:900,fontSize:15,letterSpacing:".05em"}}>UMIYA ASSOCIATES</p>
-        <p style={{margin:"2px 0 0",color:"rgba(255,255,255,.7)",fontSize:10}}>CONSTRUCTION ERP — IDENTITY CARD</p>
-      </div>
-      <div style={{padding:16,display:"flex",gap:14,alignItems:"flex-start"}}>
-        {idCardWorker.worker_photo_url
-          ?<img src={idCardWorker.worker_photo_url} style={{width:72,height:88,objectFit:"cover",
-            borderRadius:6,border:"2px solid #1D4ED8",flexShrink:0}}/>
-          :<div style={{width:72,height:88,borderRadius:6,background:"#EFF6FF",
-            display:"flex",alignItems:"center",justifyContent:"center",
-            border:"2px dashed #93C5FD",flexShrink:0}}>
-            <span style={{fontSize:26,fontWeight:700,color:"#1D4ED8"}}>
-              {idCardWorker.worker_name[0].toUpperCase()}
-            </span>
-          </div>}
-        <div style={{flex:1}}>
-          <p style={{margin:0,fontWeight:800,fontSize:14,color:"#0F172A",lineHeight:1.2}}>{idCardWorker.worker_name}</p>
-          {idCardWorker.father_name&&<p style={{margin:"3px 0 0",fontSize:10,color:"#64748B"}}>S/o {idCardWorker.father_name}</p>}
-          <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:3}}>
-            {[["Code",idCardWorker.worker_code,"#1D4ED8"],["Trade",idCardWorker.trade,null],
-              ["Site",idCardWorker.sites?.site_name||"—",null],["Joined",idCardWorker.date_joined||"—",null],
-              idCardWorker.mobile&&["Mobile",idCardWorker.mobile,null]].filter(Boolean).map(([k,v,col])=>(
-              <div key={k} style={{display:"flex",gap:4}}>
-                <span style={{fontSize:10,fontWeight:700,color:"#64748B",width:50}}>{k}</span>
-                <span style={{fontSize:10,fontWeight:col?700:600,color:col||"#0F172A"}}>{v}</span>
+const WorkerIdCard=({worker:w,onClose})=>{
+  if(!w)return null;
+  // 90mm x 55mm at 96dpi screen: 1mm = 3.7795px
+  // We render at 2x for sharpness then scale down, but use mm units for print
+  const RED="#9B1C1C"; const DARKRED="#7F1D1D"; const LIGHTRED="#FEE2E2";
+  const printCard=()=>{
+    const el=document.getElementById("id-card-90x55");
+    const pw=window.open("","_blank","width=400,height=320");
+    pw.document.write(`<!DOCTYPE html><html><head><title>ID Card — ${w.worker_code}</title>
+    <style>
+      @page{size:90mm 55mm;margin:0}
+      *{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      body{width:90mm;height:55mm;overflow:hidden;font-family:Arial,sans-serif}
+    </style></head><body>${el.innerHTML}</body></html>`);
+    pw.document.close();
+    pw.onload=()=>{pw.focus();pw.print();};
+  };
+  return <Modal open={!!w} onClose={onClose} title="ID Card — Print Preview" width={480}>
+    {/* screen preview wrapper — centred, shadow */}
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16}}>
+      <p style={{fontSize:12,color:"#64748B",margin:0}}>Actual size: 90 mm × 55 mm — cut and insert into card sleeve</p>
+
+      {/* THE CARD — all sizes in mm so browser renders at correct physical size */}
+      <div id="id-card-90x55" style={{
+        width:"90mm",height:"55mm",
+        border:`0.5mm solid ${RED}`,borderRadius:"2mm",
+        overflow:"hidden",background:"#fff",
+        fontFamily:"Arial,sans-serif",
+        boxShadow:"0 4px 20px rgba(0,0,0,.25)",
+        flexShrink:0,
+      }}>
+        {/* TOP HEADER BAR */}
+        <div style={{background:RED,height:"9mm",display:"flex",alignItems:"center",
+          justifyContent:"center",position:"relative"}}>
+          <span style={{color:"#fff",fontWeight:900,fontSize:"4.5mm",letterSpacing:".08em",
+            textTransform:"uppercase"}}>IDENTITY CARD</span>
+        </div>
+
+        {/* CURVED ACCENT — mimics physical card arc */}
+        <div style={{position:"relative",height:"36mm",display:"flex"}}>
+          {/* Left red panel with arc */}
+          <svg style={{position:"absolute",top:0,left:0,width:"36mm",height:"36mm"}} viewBox="0 0 136 136" preserveAspectRatio="none">
+            <path d="M0,0 L136,0 Q80,68 136,136 L0,136 Z" fill={RED} opacity="0.15"/>
+          </svg>
+
+          {/* PHOTO BOX */}
+          <div style={{width:"26mm",height:"32mm",margin:"2mm 2mm 2mm 3mm",flexShrink:0,
+            border:`0.5mm solid ${RED}`,borderRadius:"1mm",overflow:"hidden",
+            background:LIGHTRED,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1}}>
+            {w.worker_photo_url
+              ?<img src={w.worker_photo_url} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+              :<div style={{textAlign:"center",color:RED}}>
+                  {/* silhouette SVG matching physical card */}
+                  <svg viewBox="0 0 60 80" width="20mm" height="26mm" fill={RED} opacity="0.6">
+                    <circle cx="30" cy="22" r="13"/>
+                    <path d="M5,80 Q5,50 30,50 Q55,50 55,80 Z"/>
+                  </svg>
+               </div>}
+          </div>
+
+          {/* RIGHT DETAILS */}
+          <div style={{flex:1,paddingTop:"2mm",paddingRight:"2mm",zIndex:1}}>
+            {/* Name */}
+            <div style={{fontSize:"3mm",fontWeight:900,color:"#0F172A",lineHeight:1.2,marginBottom:"1mm"}}>
+              {w.worker_name}
+            </div>
+            {w.father_name&&<div style={{fontSize:"2.3mm",color:"#64748B",marginBottom:"1.5mm"}}>S/o {w.father_name}</div>}
+
+            {/* Fields table */}
+            {[
+              ["Code",w.worker_code,RED,true],
+              ["Trade",w.trade,null,false],
+              ["Site",(w.sites?.site_name||"—"),null,false],
+              ["Joined",w.date_joined||"—",null,false],
+              w.mobile&&["Mobile",w.mobile,null,false],
+            ].filter(Boolean).map(([k,v,col,bold])=>(
+              <div key={k} style={{display:"flex",gap:"1mm",marginBottom:"0.6mm",alignItems:"baseline"}}>
+                <span style={{fontSize:"2.2mm",fontWeight:700,color:RED,width:"8mm",flexShrink:0}}>{k}</span>
+                <span style={{fontSize:"2.5mm",fontWeight:bold?800:600,color:col||"#0F172A",lineHeight:1}}>{v}</span>
               </div>
             ))}
           </div>
         </div>
-      </div>
-      {idCardWorker.aadhaar_number&&<div style={{background:"#F8FAFC",padding:"6px 16px",
-        borderTop:"1px dashed #CBD5E1",fontSize:10,color:"#475569"}}>
-        Aadhaar: <b>{idCardWorker.aadhaar_number}</b>
-      </div>}
-      <div style={{display:"flex",justifyContent:"space-between",padding:"10px 16px",borderTop:"1px solid #E2E8F0"}}>
-        <div style={{textAlign:"center"}}>
-          <div style={{width:80,height:24,borderBottom:"1px solid #94A3B8",marginBottom:3}}/>
-          <p style={{margin:0,fontSize:9,color:"#64748B",fontWeight:600}}>CLIENT STAMP</p>
+
+        {/* AADHAAR STRIP */}
+        {w.aadhaar_number&&<div style={{background:LIGHTRED,borderTop:`0.3mm dashed ${RED}`,
+          padding:"0.8mm 3mm",fontSize:"2.3mm",color:DARKRED,fontWeight:700,height:"4.5mm",
+          display:"flex",alignItems:"center"}}>
+          Aadhaar: {w.aadhaar_number}
+        </div>}
+
+        {/* SIGNATURE / STAMP ROW */}
+        <div style={{
+          background:RED,height:"5.5mm",display:"flex",alignItems:"center",
+          justifyContent:"space-between",padding:"0 3mm",marginTop:"auto",
+          borderTop:`0.5mm solid ${DARKRED}`
+        }}>
+          <div style={{textAlign:"left"}}>
+            <div style={{width:"18mm",borderBottom:"0.3mm solid rgba(255,255,255,.7)",marginBottom:"0.5mm"}}/>
+            <span style={{fontSize:"1.8mm",color:"rgba(255,255,255,.85)",fontWeight:700,letterSpacing:".03em"}}>CLIENT STAMP</span>
+          </div>
+          <div style={{fontSize:"1.8mm",color:"rgba(255,255,255,.6)",letterSpacing:".05em"}}>UMIYA ASSOCIATES</div>
+          <div style={{textAlign:"right"}}>
+            <div style={{width:"18mm",borderBottom:"0.3mm solid rgba(255,255,255,.7)",marginBottom:"0.5mm"}}/>
+            <span style={{fontSize:"1.8mm",color:"rgba(255,255,255,.85)",fontWeight:700,letterSpacing:".03em"}}>SITE INCHARGE</span>
+          </div>
         </div>
-        <div style={{textAlign:"center"}}>
-          <div style={{width:80,height:24,borderBottom:"1px solid #94A3B8",marginBottom:3}}/>
-          <p style={{margin:0,fontSize:9,color:"#64748B",fontWeight:600}}>SITE INCHARGE</p>
-        </div>
       </div>
-      <div style={{background:"#0F172A",padding:"6px 16px",textAlign:"center"}}>
-        <p style={{margin:0,fontSize:9,color:"rgba(255,255,255,.5)"}}>Valid only for the above mentioned project site</p>
+
+      {/* Buttons */}
+      <div style={{display:"flex",gap:8}}>
+        <Btn style={{background:RED,borderColor:DARKRED}} onClick={printCard}>🖨 Print ID Card</Btn>
+        <Btn variant="ghost" onClick={onClose}>Close</Btn>
       </div>
-    </div>
-    <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"center"}}>
-      <Btn style={{background:"#6366f1",borderColor:"#6366f1"}} onClick={()=>window.print()}>🖨 Print ID Card</Btn>
-      <Btn variant="ghost" onClick={onClose}>Close</Btn>
     </div>
   </Modal>;
 };
@@ -4555,7 +4612,7 @@ const LabourEntry=()=>{
     if(error){
       // If bucket not found, show a soft warning — don't block save
       if(error.message?.includes("Bucket not found")||error.message?.includes("bucket")){
-        show("⚠ Storage bucket not set up — photo skipped. Worker details will still be saved.","error");
+        show("⚠ Storage bucket not set up — photo will be saved when bucket is configured.","warn");
         return null;
       }
       show("Upload failed: "+error.message,"error");
