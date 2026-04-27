@@ -416,7 +416,7 @@ const Login=({onLogin})=>{
       const {data,error}=await sb.auth.signInWithPassword({email:email.trim(),password:pass});
       if(error)throw error;
       const {data:profile,error:pe}=await sb.from("app_users")
-        .select("*,sites(site_name)").eq("auth_id",data.user.id).single();
+        .select("*").eq("auth_id",data.user.id).single();
       if(pe||!profile)throw new Error("User profile not found. Ask Admin to create your account.");
       if(!profile.is_active)throw new Error("Account deactivated. Contact Admin.");
       const {data:pol}=await sb.from("policy_master").select("policy_id").eq("role_type",profile.role).single();
@@ -8671,7 +8671,7 @@ function App(){
   useEffect(()=>{
     sb.auth.getSession().then(({data:{session:s}})=>{
       if(s){
-        sb.from("app_users").select("*,sites(site_name)").eq("auth_id",s.user.id).single()
+        sb.from("app_users").select("*").eq("auth_id",s.user.id).single()
           .then(async({data:profile})=>{
             if(!profile||!profile.is_active){setSession(false);return;}
             // Load assigned sites from junction table
