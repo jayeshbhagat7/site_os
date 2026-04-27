@@ -4437,7 +4437,7 @@ const LabourEntry=()=>{
     const [w,s,st,bl]=await Promise.all([
       fetchAll(sb.from("workers").select("*,sites(site_name)").order("created_at",{ascending:false})),
       (async()=>{
-        let q=sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name");
+        let q=sb.from("sites").select("site_id,site_name,job_id,site_code").eq("is_active",true).order("site_name");
         if(!isUnrestricted&&assignedSiteIds.length>0) q=q.in("site_id",assignedSiteIds);
         return q.then(r=>r.data||[]);
       })(),
@@ -4477,10 +4477,10 @@ const LabourEntry=()=>{
     } else if(sites.length>0){
       defaultSite=sites[0];
     }
-    // Auto-generate next code based on site's job_id prefix
+    // Auto-generate next code based on site's site_code prefix
     let workerCode="UA-00001";
-    if(defaultSite?.job_id){
-      const siteCode=defaultSite.job_id;
+    if(defaultSite?.site_code||defaultSite?.job_id){
+      const siteCode=defaultSite.site_code||defaultSite.job_id;
       const siteWorkers=workers.filter(w=>w.worker_code?.startsWith(siteCode+"-"));
       const maxNum=siteWorkers.reduce((mx,w)=>{
         const n=parseInt((w.worker_code??"").split("-").pop()||"0");
@@ -4584,8 +4584,6 @@ const LabourEntry=()=>{
     const payload={
       worker_code:(form.worker_code||"").trim(),
       worker_name:(form.worker_name||"").trim(),
-      first_name:form.first_name||null,
-      surname:form.surname||null,
       father_name:form.father_name||null,
       mother_name:form.mother_name||null,
       trade:form.trade,
@@ -4721,8 +4719,6 @@ const LabourEntry=()=>{
     const draftPayload={
       worker_code:(form.worker_code||"").trim(),
       worker_name:(form.worker_name||"").trim()||"(Draft)",
-      first_name:form.first_name||null,
-      surname:form.surname||null,
       father_name:form.father_name||null,
       mother_name:form.mother_name||null,
       trade:form.trade||"(TBD)",
@@ -5027,10 +5023,10 @@ const LabourEntry=()=>{
             options={sites.filter(s=>s.job_id).map(s=>({v:s.job_id,l:`${s.job_id} — ${s.site_name}`}))}
             onChange={e=>{
               const jobId=e.target.value;
-              const site=sites.find(s=>s.job_id===jobId);
+              const site=sites.find(s=>String(s.job_id)===String(jobId));
               if(site){
                 // Auto-generate code for this site
-                const siteCode=site.job_id;
+                const siteCode=site.site_code||site.job_id;
                 const siteWorkers=workers.filter(w=>w.worker_code?.startsWith(siteCode+"-"));
                 const maxNum=siteWorkers.reduce((mx,w)=>{
                   const n=parseInt((w.worker_code??"").split("-").pop()||"0");
@@ -5049,8 +5045,8 @@ const LabourEntry=()=>{
             onChange={e=>{
               const siteId=e.target.value;
               const site=sites.find(s=>String(s.site_id)===String(siteId));
-              if(site&&site.job_id){
-                const siteCode=site.job_id;
+              if(site&&(site.site_code||site.job_id)){
+                const siteCode=site.site_code||site.job_id;
                 const siteWorkers=workers.filter(w=>w.worker_code?.startsWith(siteCode+"-"));
                 const maxNum=siteWorkers.reduce((mx,w)=>{
                   const n=parseInt((w.worker_code??"").split("-").pop()||"0");
