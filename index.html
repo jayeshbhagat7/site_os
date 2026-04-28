@@ -429,9 +429,17 @@ const Login=({onLogin})=>{
         const merged=perms.filter(p=>!overrides.find(o=>o.module===p.module));
         perms=[...merged,...overrides];
       }
-      // Also load assigned sites
-      const {data:us}=await sb.from("user_sites").select("site_id,sites(site_name)").eq("user_id",profile.user_id);
-      const siteList=(us||[]).map(r=>({site_id:r.site_id,site_name:r.sites?.site_name}));
+      // Load assigned sites from user_sites junction; fallback to assigned_site_id column
+      const {data:us}=await sb.from("user_sites").select("site_id").eq("user_id",profile.user_id);
+      let siteIds=(us||[]).map(r=>r.site_id);
+      // Fallback: if no user_sites rows, use assigned_site_id from profile
+      if(siteIds.length===0&&profile.assigned_site_id) siteIds=[profile.assigned_site_id];
+      // Fetch site names for the ids we have
+      let siteList=[];
+      if(siteIds.length>0){
+        const {data:siteRows}=await sb.from("sites").select("site_id,site_name").in("site_id",siteIds);
+        siteList=(siteRows||[]).map(s=>({site_id:s.site_id,site_name:s.site_name}));
+      }
       onLogin({...profile,perms,_assignedSites:siteList});
     }catch(e){setErr(e.message||"Login failed");}
     setLoading(false);
@@ -1087,7 +1095,7 @@ const UserMaster=()=>{
 
   const load=useCallback(async()=>{
     const [{data:u},{data:s},{data:pm}]=await Promise.all([
-      sb.from("app_users").select("*,sites(site_name)").order("name"),
+      sb.from("app_users").select("*").order("name"),
       sb.from("sites").select("site_id,site_name").eq("is_active",true).order("site_name"),
       sb.from("policy_master").select("role_type").order("role_type"), // Fix 1
     ]);
@@ -1552,6 +1560,15 @@ const WorkerMaster=()=>{
   const {user,perms,activeSiteId,assignedSiteIds,isUnrestricted,setActive,setPendingEditWorker}=useAuth();
   if(!hasPerm(perms,"Labour","can_view"))return <NoAccess module="Worker Master"/>;
   const canEdit=hasPerm(perms,"Labour","can_add");
+  // SIC can view all sites but edit/transfer only their assigned site workers
+  const canEditWorker=(worker)=>{
+    if(!canEdit)return false;
+    if(isUnrestricted)return true;
+    if(user.role==="SIC"){
+      return assignedSiteIds.includes(worker?.current_site_id);
+    }
+    return true;
+  };
   const canSetGTV=["SIC","Admin"].includes(user.role);
   const canSeeGTVLeft=["SIC","Admin","Owner"].includes(user.role);
   // ── Tabs: active | gtv | left
@@ -1991,7 +2008,7 @@ const WorkerMaster=()=>{
     <Toast/>
     <PH title="Workers"
       sub={`${data.filter(d=>d.status==="Active").length} active · ${data.filter(d=>d.status==="GTV").length} GTV · ${data.filter(d=>d.status==="Left").length} left`}
-      right={canEdit&&<Btn onClick={()=>setActive("labour")} style={{background:"#16a34a",borderColor:"#16a34a"}}>
+      right={canEdit&&(isUnrestricted||assignedSiteIds.length>0)&&<Btn onClick={()=>setActive("labour")} style={{background:"#16a34a",borderColor:"#16a34a"}}>
         <Ic d={I.plus} s={15} col="#fff"/>New Registration
       </Btn>}/>
 
@@ -2077,15 +2094,15 @@ const WorkerMaster=()=>{
               </td>
               <td style={{padding:"10px 14px"}}>
                 <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                  {canEdit&&<Btn size="sm" variant="secondary" onClick={()=>{setPendingEditWorker(r);setActive("labour");}}>Edit</Btn>}
-                  {r.current_site_id&&<Btn size="sm" variant="ghost" onClick={()=>{setTxWorker(r);setTxForm({transfer_type:"permanent"});setTxOpen(true);}}><Ic d={I.transfer} s={12}/></Btn>}
-                  {r.status==="Active"&&<Btn size="sm" variant="ghost" onClick={()=>{setDbWorker(r);setDbForm({});setDbOpen(true);}}><Ic d={I.alert} s={12}/>Debit</Btn>}
-                  {r.status==="Active"&&canSetGTV&&<Btn size="sm" variant="ghost"
+                  {canEditWorker(r)&&<Btn size="sm" variant="secondary" onClick={()=>{setPendingEditWorker(r);setActive("labour");}}>Edit</Btn>}
+                  {r.current_site_id&&canEditWorker(r)&&<Btn size="sm" variant="ghost" onClick={()=>{setTxWorker(r);setTxForm({transfer_type:"permanent"});setTxOpen(true);}}><Ic d={I.transfer} s={12}/></Btn>}
+                  {r.status==="Active"&&canEditWorker(r)&&<Btn size="sm" variant="ghost" onClick={()=>{setDbWorker(r);setDbForm({});setDbOpen(true);}}><Ic d={I.alert} s={12}/>Debit</Btn>}
+                  {r.status==="Active"&&canSetGTV&&canEditWorker(r)&&<Btn size="sm" variant="ghost"
                     style={{color:"#f59e0b",borderColor:"#f59e0b"}}
                     onClick={()=>openMarkGTV(r)}>GTV</Btn>}
-                  {r.status==="Left"&&canEdit&&<Btn size="sm" style={{background:"#16a34a",color:"#fff",border:"none"}}
+                  {r.status==="Left"&&canEditWorker(r)&&<Btn size="sm" style={{background:"#16a34a",color:"#fff",border:"none"}}
                     onClick={()=>{setRxWorker(r);setRxBuildings(allBuildings.filter(b=>b.site_id===r.current_site_id));setRxForm({per_day_rate:r.per_day_rate||"",current_site_id:r.current_site_id?.toString()||"",current_store_id:"",building_id:"",date_joined:new Date().toISOString().split("T")[0]});setRxOpen(true);}}>↑ Rejoin</Btn>}
-                  {r.status==="GTV"&&canSetGTV&&<>
+                  {r.status==="GTV"&&canSetGTV&&canEditWorker(r)&&<>
                     <Btn size="sm" style={{background:"#16a34a",color:"#fff",border:"none"}}
                       onClick={()=>{setGtvActWorker(r);setGtvActType("rejoin");setGtvRejoinSite("");setGtvRejoinRate(String(r.per_day_rate||""));setGtvRejoinDate(new Date().toISOString().split("T")[0]);setGtvActNote("");setGtvActOpen(true);}}>↑ Rejoin</Btn>
                     <Btn size="sm" variant="ghost" style={{color:"#dc2626",borderColor:"#dc2626"}}
@@ -8674,12 +8691,15 @@ function App(){
         sb.from("app_users").select("*").eq("auth_id",s.user.id).single()
           .then(async({data:profile})=>{
             if(!profile||!profile.is_active){setSession(false);return;}
-            // Load assigned sites from junction table
-            const {data:us}=await sb.from("user_sites")
-              .select("site_id,sites(site_name)")
-              .eq("user_id",profile.user_id);
-            const siteList=(us||[]).map(r=>({site_id:r.site_id,site_name:r.sites?.site_name}));
-            const siteIds=siteList.map(s=>s.site_id);
+            // Load assigned sites from junction table; fallback to assigned_site_id
+            const {data:us}=await sb.from("user_sites").select("site_id").eq("user_id",profile.user_id);
+            let siteIds=(us||[]).map(r=>r.site_id);
+            if(siteIds.length===0&&profile.assigned_site_id) siteIds=[profile.assigned_site_id];
+            let siteList=[];
+            if(siteIds.length>0){
+              const {data:siteRows}=await sb.from("sites").select("site_id,site_name").in("site_id",siteIds);
+              siteList=(siteRows||[]).map(s=>({site_id:s.site_id,site_name:s.site_name}));
+            }
             setAssignedSites(siteList);
             setAssignedSiteIds(siteIds);
             // If only one site, auto-select it
@@ -8743,7 +8763,7 @@ function App(){
   // ── Visible nav — strict role + permission filtering ─────────
   const visibleNav=NAV.filter(n=>{
     // Admin-only items (Users & Roles, Policies)
-    if(n.adminOnly) return authUser.role==="Admin";
+    if(n.adminOnly) return ["Owner","Admin"].includes(authUser.role);
     // Owner-only items (Sites, Stores, Buildings)
     if(n.ownerOnly) return ["Owner","Admin"].includes(authUser.role);
     // SIC-only items (GTV Repository)
