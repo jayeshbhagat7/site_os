@@ -1975,8 +1975,8 @@ const WorkerMaster=()=>{
     if(d.status!==tabStatus)return false;
     // Site-scope for Active workers
     if(tab==="active"&&!isUnrestricted){
-      const userSites=(activeSiteId?[activeSiteId]:assignedSiteIds).map(Number);
-      if(userSites.length>0&&d.current_site_id&&!userSites.includes(Number(d.current_site_id)))return false;
+      const userSites=activeSiteId?[activeSiteId]:assignedSiteIds;
+      if(userSites.length>0&&d.current_site_id&&!userSites.includes(d.current_site_id))return false;
     }
     if(fSite&&d.current_site_id!==parseInt(fSite))return false;
     if(search){
