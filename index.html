@@ -918,6 +918,30 @@ const SiteMaster=()=>{
   const save=async()=>{
     const e={};if(!form.site_name?.trim())e.site_name="Required";
     if(Object.keys(e).length){setErrs(e);return;}
+    // Guard: Admin-only can deactivate a site; and only if no active workers remain
+    if(editing&&form.is_active===false&&editing.is_active!==false){
+      if(user.role!=="Owner"&&user.role!=="Admin"){
+        show("Only Admin or Owner can deactivate a site","error");return;
+      }
+      // Check for active workers on this site
+      const {count}=await sb.from("workers")
+        .select("id",{count:"exact",head:true})
+        .eq("current_site_id",editing.site_id)
+        .eq("status","Active");
+      if(count>0){
+        show(`Cannot deactivate: ${count} active worker(s) still assigned to this site. Transfer or mark them as GTV first.`,"error");
+        return;
+      }
+      // Check for GTV workers
+      const {count:gtvCount}=await sb.from("workers")
+        .select("id",{count:"exact",head:true})
+        .eq("current_site_id",editing.site_id)
+        .eq("status","GTV");
+      if(gtvCount>0){
+        show(`Cannot deactivate: ${gtvCount} GTV worker(s) still assigned. Transfer or mark as Left first.`,"error");
+        return;
+      }
+    }
     setSaving(true);
     const p={site_name:form.site_name.trim(),site_code:form.site_code?.trim()||null,
       job_id:form.job_id?.trim()||null,
@@ -1554,18 +1578,19 @@ const UserMaster=()=>{
 
 // ─── WORKER MASTER ───────────────────────────────────────────────
 const WorkerMaster=()=>{
-  const {user,perms,activeSiteId,assignedSiteIds,isUnrestricted,setActive,setPendingEditWorker}=useAuth();
+  const {user,perms,activeSiteId,assignedSiteIds,isUnrestricted,setActive,setPendingEditWorker,setPendingNewWorker}=useAuth();
   if(!hasPerm(perms,"Labour","can_view"))return <NoAccess module="Worker Master"/>;
   const canEdit=hasPerm(perms,"Labour","can_add");
   const canSetGTV=["SIC","Admin"].includes(user.role);
   const canSeeGTVLeft=["SIC","Admin","Owner"].includes(user.role);
-  // ── Tabs: active | gtv | left
-  const [tab,setTab]=useState("active");
+  // ── View selector: siteId string | "gtv_left"
+  const defaultView=activeSiteId?String(activeSiteId):(assignedSiteIds.length>0?String(assignedSiteIds[0]):"");
+  const [selView,setSelView]=useState(defaultView);
   const [data,setData]=useState([]);const [sites,setSites]=useState([]);
   const [stores,setStores]=useState([]);const [formStores,setFormStores]=useState([]);
   const [allBuildings,setAllBuildings]=useState([]);const [formBuildings,setFormBuildings]=useState([]);
-  const [search,setSearch]=useState("");const [fSite,setFSite]=useState("");
-  const [fStatus,setFStatus]=useState("");const [open,setOpen]=useState(false);
+  const [search,setSearch]=useState("");
+  const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);const [form,setForm]=useState({});
   const [errs,setErrs]=useState({});const [saving,setSaving]=useState(false);
   const [page,setPage]=useState(0);const [PS,setPS]=useState(25);
@@ -1957,16 +1982,28 @@ const WorkerMaster=()=>{
   const getDaysToExpiry=(d)=>{if(!d)return null;const e=new Date(d);e.setMonth(e.getMonth()+6);return Math.ceil((e-today_)/(864e5));};
   const fmtDate_=(d)=>d?new Date(d).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}):"—";
 
-  // ── Filtered/sorted list — tab-aware ─────────────────────────
-  const tabStatus=tab==="active"?"Active":tab==="gtv"?"GTV":"Left";
+  // ── canEditWorker: SIC can view all sites but edit only assigned site workers ──
+  const canEditWorker=(worker)=>{
+    if(!canEdit)return false;
+    if(isUnrestricted)return true;
+    if(assignedSiteIds.length===0)return true;
+    return assignedSiteIds.includes(worker?.current_site_id);
+  };
+  // isViewingOtherSite: user is looking at a site they are NOT assigned to
+  const isViewingOtherSite=selView!=="gtv_left"&&assignedSiteIds.length>0&&!assignedSiteIds.includes(parseInt(selView));
+
+  // ── Filtered/sorted list — view-aware ─────────────────────────
   const filtered=data.filter(d=>{
-    if(d.status!==tabStatus)return false;
-    // Site-scope for Active workers
-    if(tab==="active"&&!isUnrestricted){
-      const userSites=activeSiteId?[activeSiteId]:assignedSiteIds;
-      if(userSites.length>0&&d.current_site_id&&!userSites.includes(d.current_site_id))return false;
+    if(selView==="gtv_left"){
+      // Combined GTV + Left view — sorted by worker_code
+      if(d.status!=="GTV"&&d.status!=="Left")return false;
+      // SIC/unrestricted see all; others see only their assigned sites
+      if(!isUnrestricted&&assignedSiteIds.length>0&&!assignedSiteIds.includes(d.current_site_id))return false;
+    } else {
+      // Site-specific Active workers view
+      if(d.status!=="Active")return false;
+      if(d.current_site_id!==parseInt(selView))return false;
     }
-    if(fSite&&d.current_site_id!==parseInt(fSite))return false;
     if(search){
       const q=search.toLowerCase();
       const match=(d.worker_name||"").toLowerCase().includes(q)
@@ -1980,6 +2017,10 @@ const WorkerMaster=()=>{
     return true;
   });
   const sorted=[...filtered].sort((a,b)=>{
+    // GTV+Left always sorted by worker_code
+    if(selView==="gtv_left"){
+      return (a.worker_code||"").localeCompare(b.worker_code||"");
+    }
     let av,bv;
     if(sortCol==="worker_code"){av=a.worker_code||"";bv=b.worker_code||"";}
     else if(sortCol==="worker_name"){av=(a.worker_name||"").toLowerCase();bv=(b.worker_name||"").toLowerCase();}
@@ -1996,39 +2037,46 @@ const WorkerMaster=()=>{
     <Toast/>
     <PH title="Workers"
       sub={`${data.filter(d=>d.status==="Active").length} active · ${data.filter(d=>d.status==="GTV").length} GTV · ${data.filter(d=>d.status==="Left").length} left`}
-      right={canEdit&&<Btn onClick={()=>setActive("labour")} style={{background:"#16a34a",borderColor:"#16a34a"}}>
+      right={canEdit&&<Btn onClick={()=>{setPendingNewWorker(true);setActive("labour");}} style={{background:"#16a34a",borderColor:"#16a34a"}}>
         <Ic d={I.plus} s={15} col="#fff"/>New Registration
       </Btn>}/>
 
-    {/* ── Tab pills ─────────────────────────────────────────────── */}
-    <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
-      {[
-        {id:"active", label:"Active",  count:data.filter(d=>d.status==="Active").length, col:"#16a34a", bg:"#f0fdf4"},
-        {id:"gtv",    label:"GTV",     count:data.filter(d=>d.status==="GTV").length,    col:"#f59e0b", bg:"#fffbeb"},
-        {id:"left",   label:"Left",    count:data.filter(d=>d.status==="Left").length,   col:"#dc2626", bg:"#fef2f2"},
-      ].map(t=>(
-        <button key={t.id} onClick={()=>{setTab(t.id);setSearch("");setPage(0);}}
-          style={{padding:"7px 18px",borderRadius:30,border:`2px solid ${tab===t.id?t.col:C.border}`,
-            background:tab===t.id?t.col:"#fff",
-            color:tab===t.id?"#fff":C.muted,
-            fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit",
-            transition:"all .12s",display:"flex",alignItems:"center",gap:7}}>
-          {t.label}
-          <span style={{background:tab===t.id?"rgba(255,255,255,.25)":t.bg,
-            color:tab===t.id?"#fff":t.col,
-            borderRadius:20,padding:"1px 8px",fontSize:12,fontWeight:800}}>
-            {t.count}
-          </span>
-        </button>
-      ))}
+    {/* ── View selector + search ──────────────────────────────────── */}
+    <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+      {/* Dropdown: assigned sites + GTV+Left */}
+      <div style={{display:"flex",alignItems:"center",gap:8,flex:"0 0 auto"}}>
+        <select value={selView} onChange={e=>{setSelView(e.target.value);setSearch("");setPage(0);}}
+          style={{padding:"8px 12px",border:`1.5px solid ${C.accent}`,borderRadius:8,fontSize:13,
+            fontWeight:600,color:C.text,background:"#fff",fontFamily:"inherit",minWidth:180}}>
+          {/* Assigned sites */}
+          {sites.filter(s=>isUnrestricted||assignedSiteIds.includes(s.site_id)).map(s=>(
+            <option key={s.site_id} value={String(s.site_id)}>
+              {s.site_name} ({data.filter(d=>d.status==="Active"&&d.current_site_id===s.site_id).length} active)
+            </option>
+          ))}
+          {/* Other sites visible to SIC/unrestricted */}
+          {isUnrestricted&&sites.filter(s=>!assignedSiteIds.includes(s.site_id)).map(s=>(
+            <option key={s.site_id} value={String(s.site_id)}>
+              {s.site_name} — view only ({data.filter(d=>d.status==="Active"&&d.current_site_id===s.site_id).length})
+            </option>
+          ))}
+          {/* GTV + Left combined */}
+          <option value="gtv_left">
+            GTV + Left ({data.filter(d=>d.status==="GTV"||d.status==="Left").length}) — sorted by code
+          </option>
+        </select>
+        {/* View-only badge for other sites */}
+        {isViewingOtherSite&&<span style={{background:"#FEF3C7",color:"#92400E",fontSize:11,
+          fontWeight:700,padding:"3px 10px",borderRadius:20,border:"1px solid #FCD34D"}}>
+          👁 View Only
+        </span>}
+        {selView==="gtv_left"&&<span style={{background:"#FEF3C7",color:"#92400E",fontSize:11,
+          fontWeight:700,padding:"3px 10px",borderRadius:20}}>
+          GTV {data.filter(d=>d.status==="GTV").length} · Left {data.filter(d=>d.status==="Left").length}
+        </span>}
+      </div>
       <div style={{flex:1}}/>
-      <Search value={search} onChange={v=>{setSearch(v);setPage(0);}} placeholder={`Search ${tab} workers…`}/>
-      <select value={fSite} onChange={e=>{setFSite(e.target.value);setPage(0);}}
-        style={{padding:"8px 12px",border:`1.5px solid ${C.border}`,borderRadius:8,fontSize:13,
-          color:fSite?C.text:C.muted,background:"#fff",fontFamily:"inherit"}}>
-        <option value="">All Sites</option>
-        {sites.map(s=><option key={s.site_id} value={s.site_id}>{s.site_name}</option>)}
-      </select>
+      <Search value={search} onChange={v=>{setSearch(v);setPage(0);}} placeholder="Search workers…"/>
     </div>
 
     <div style={{background:"#fff",border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
@@ -2082,15 +2130,15 @@ const WorkerMaster=()=>{
               </td>
               <td style={{padding:"10px 14px"}}>
                 <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                  {canEdit&&<Btn size="sm" variant="secondary" onClick={()=>{setPendingEditWorker(r);setActive("labour");}}>Edit</Btn>}
-                  {r.current_site_id&&<Btn size="sm" variant="ghost" onClick={()=>{setTxWorker(r);setTxForm({transfer_type:"permanent"});setTxOpen(true);}}><Ic d={I.transfer} s={12}/></Btn>}
-                  {r.status==="Active"&&<Btn size="sm" variant="ghost" onClick={()=>{setDbWorker(r);setDbForm({});setDbOpen(true);}}><Ic d={I.alert} s={12}/>Debit</Btn>}
-                  {r.status==="Active"&&canSetGTV&&<Btn size="sm" variant="ghost"
+                  {canEditWorker(r)&&<Btn size="sm" variant="secondary" onClick={()=>{setPendingEditWorker(r);setActive("labour");}}>Edit</Btn>}
+                  {r.current_site_id&&canEditWorker(r)&&<Btn size="sm" variant="ghost" onClick={()=>{setTxWorker(r);setTxForm({transfer_type:"permanent"});setTxOpen(true);}}><Ic d={I.transfer} s={12}/></Btn>}
+                  {r.status==="Active"&&canEditWorker(r)&&<Btn size="sm" variant="ghost" onClick={()=>{setDbWorker(r);setDbForm({});setDbOpen(true);}}><Ic d={I.alert} s={12}/>Debit</Btn>}
+                  {r.status==="Active"&&canSetGTV&&canEditWorker(r)&&<Btn size="sm" variant="ghost"
                     style={{color:"#f59e0b",borderColor:"#f59e0b"}}
                     onClick={()=>openMarkGTV(r)}>GTV</Btn>}
-                  {r.status==="Left"&&canEdit&&<Btn size="sm" style={{background:"#16a34a",color:"#fff",border:"none"}}
+                  {r.status==="Left"&&canEditWorker(r)&&<Btn size="sm" style={{background:"#16a34a",color:"#fff",border:"none"}}
                     onClick={()=>{setRxWorker(r);setRxBuildings(allBuildings.filter(b=>b.site_id===r.current_site_id));setRxForm({per_day_rate:r.per_day_rate||"",current_site_id:r.current_site_id?.toString()||"",current_store_id:"",building_id:"",date_joined:new Date().toISOString().split("T")[0]});setRxOpen(true);}}>↑ Rejoin</Btn>}
-                  {r.status==="GTV"&&canSetGTV&&<>
+                  {r.status==="GTV"&&canSetGTV&&canEditWorker(r)&&<>
                     <Btn size="sm" style={{background:"#16a34a",color:"#fff",border:"none"}}
                       onClick={()=>{setGtvActWorker(r);setGtvActType("rejoin");setGtvRejoinSite("");setGtvRejoinRate(String(r.per_day_rate||""));setGtvRejoinDate(new Date().toISOString().split("T")[0]);setGtvActNote("");setGtvActOpen(true);}}>↑ Rejoin</Btn>
                     <Btn size="sm" variant="ghost" style={{color:"#dc2626",borderColor:"#dc2626"}}
@@ -4095,7 +4143,7 @@ const ServiceKeySetup = ({onSave}) => {
     </ol>
     <div style={{marginBottom:14}}>
       <label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>service_role Key</label>
-      <input id="mengram_key" name="mengram_key" value={key} onChange={e=>setKey(e.target.value)}
+      <input id="service_role_key" name="mengram_key" value={key} onChange={e=>setKey(e.target.value)}
         placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
         style={{width:"100%",padding:"10px 12px",border:"1.5px solid #E2E8F0",
           borderRadius:8,fontSize:12,fontFamily:"monospace",color:"#0F172A",background:"#fff",outline:"none"}}/>
@@ -4229,7 +4277,7 @@ const RefWorkerSearch=({form,F,allWorkers,sites})=>{
           width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
         </svg>
-        <input id="mengram_query" name="mengram_query" value={query} onChange={e=>doSearch(e.target.value)}
+        <input id="worker_search_query" name="mengram_query" value={query} onChange={e=>doSearch(e.target.value)}
           onFocus={()=>query&&setShowDrop(true)}
           onBlur={()=>setTimeout(()=>setShowDrop(false),180)}
           placeholder="Type code (UA-XXXXX), name or mobile…"
@@ -4462,7 +4510,7 @@ const WorkerPrintForm=({worker:printWorker,onClose})=>{
         <div style={{display:"flex",gap:8}}>
           <Btn style={{background:"#7c3aed",borderColor:"#7c3aed"}} onClick={()=>{
             const s=document.createElement("style");
-            s.textContent=`@media print{.no-print{display:none!important}body{margin:0}#lrf{box-shadow:none!important;border-radius:0!important;max-width:100%!important}.mengram-widget{display:none!important}}`;
+            s.textContent=`@media print{.no-print{display:none!important}body{margin:0}#lrf{box-shadow:none!important;border-radius:0!important;max-width:100%!important}}`;
             document.head.appendChild(s);window.print();setTimeout(()=>document.head.removeChild(s),1000);
           }}>🖨 Print</Btn>
           <Btn variant="ghost" onClick={onClose}>Close</Btn>
@@ -5061,7 +5109,7 @@ const WorkerIdCard=({worker:w,onClose})=>{
 
 // ─── LABOUR ENTRY ─────────────────────────────────────────────────
 const LabourEntry=()=>{
-  const {user,perms,assignedSiteIds,isUnrestricted,pendingEditWorker,setPendingEditWorker}=useAuth();
+  const {user,perms,assignedSiteIds,isUnrestricted,pendingEditWorker,setPendingEditWorker,pendingNewWorker,setPendingNewWorker}=useAuth();
   if(!hasPerm(perms,"Labour","can_view"))return <NoAccess module="Labour Entry"/>;
   const canAdd=hasPerm(perms,"Labour","can_add");
   const isSIC=["SIC","Admin"].includes(user.role);
@@ -5125,6 +5173,14 @@ const LabourEntry=()=>{
       setPendingEditWorker(null);
     }
   },[pendingEditWorker]);
+
+  // Consume pendingNewWorker from WorkerMaster New Registration button
+  useEffect(()=>{
+    if(pendingNewWorker){
+      openNew();
+      setPendingNewWorker(false);
+    }
+  },[pendingNewWorker]);
 
   // When site changes in form, filter stores/buildings and auto-fill job_no
   useEffect(()=>{
@@ -7512,237 +7568,6 @@ const DPR=()=>{
 };
 
 
-// ─── MENGRAM AI HELPER ───────────────────────────────────────────
-// ─── MENGRAM AI HELPER ───────────────────────────────────────────
-// Floating chat widget powered by Claude API
-// Tracks usage patterns to suggest shortcuts
-const MengramHelper=({currentModule,userName})=>{
-  const [open,setOpen]=useState(false);
-  const [msgs,setMsgs]=useState([
-    {role:"assistant",content:`Namaste ${userName}! I am **Mengram**, your SiteOS AI assistant. I can help you with:\n• Attendance & Haajri questions\n• Worker lookup & status\n• DPR guidance\n• Store & material queries\n• Any SiteOS workflow\n\nWhat do you need help with today?`}
-  ]);
-  const [input,setInput]=useState("");
-  const [loading,setLoading]=useState(false);
-  const [pulse,setPulse]=useState(false);
-  const msgsEndRef=useRef(null);
-
-  // Usage tracking — simple in-memory pattern tracker
-  const [usageLog,setUsageLog]=useState([]);
-  const [suggestions,setSuggestions]=useState([]);
-
-  // Track when module changes
-  useEffect(()=>{
-    if(!currentModule)return;
-    setUsageLog(prev=>{
-      const updated=[...prev,{module:currentModule,ts:Date.now()}];
-      // Analyze patterns
-      const recent=updated.slice(-10);
-      const counts={};recent.forEach(u=>counts[u.module]=(counts[u.module]||0)+1);
-      const top=Object.entries(counts).sort(([,a],[,b])=>b-a)[0];
-      if(top&&top[1]>=3){
-        setSuggestions([`You frequently use ${top[0]} — want a quick tip?`]);
-        setPulse(true);setTimeout(()=>setPulse(false),3000);
-      }
-      return updated;
-    });
-  },[currentModule]);
-
-  useEffect(()=>{
-    if(open)setTimeout(()=>msgsEndRef.current?.scrollIntoView({behavior:"smooth"}),100);
-  },[msgs,open]);
-
-  const sendMessage=async()=>{
-    if(!input.trim()||loading)return;
-    const userMsg={role:"user",content:input.trim()};
-    setMsgs(prev=>[...prev,userMsg]);
-    setInput("");setLoading(true);
-
-    const systemPrompt=`You are Mengram, the AI assistant inside SiteOS — a construction ERP for Umiya Associates, Mumbai. User: ${userName}. Module: ${currentModule||"Dashboard"}.
-SiteOS: Attendance/Haajri (mark absent, enter wage units, assign buildings), Labour Entry (register workers, upload docs, issue PPE), Worker Master (4149 workers, UA-NNNNN codes, rejoin left workers), DPR (auto-pulls attendance), Store (coming soon), Payroll (coming soon).
-Rules: Haajri=wage unit (1.0=full day, 0.5=half), PPE=Helmet+Gumboots always issued, Safety Belt only for risky work, GTV=Gone To Village, Only SIC/Admin corrects absent marks, SK marks attendance.
-Be concise, practical, Hindi/English mix fine. Never invent data.`;
-
-    try{
-      const response=await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
-          max_tokens:800,
-          system:systemPrompt,
-          messages:[...msgs.slice(1),userMsg].map(m=>({role:m.role,content:m.content}))
-        })
-      });
-
-      if(!response.ok){
-        // API blocked (CORS when run as local file) — use smart offline fallback
-        throw new Error("api_unavailable");
-      }
-
-      const data=await response.json();
-      if(data.error){throw new Error(data.error.message||"api_error");}
-      const reply=data.content?.map(c=>c.text||"").join("")||"No response received.";
-      setMsgs(prev=>[...prev,{role:"assistant",content:reply}]);
-
-    }catch(e){
-      // Smart offline fallback — rule-based answers for common questions
-      const q=userMsg.content.toLowerCase();
-      let reply="";
-
-      if(q.includes("absent")||q.includes("present")){
-        reply="**Absent marking:**\n\nGo to **Attendance** module → Select site and date → Step 1 shows all workers as Present (green P).\n\nTap any worker card to flip them to Absent (red A).\n\n⚠️ Once saved, only SIC can correct an Absent mark. SK cannot undo it.";
-      } else if(q.includes("haajri")||q.includes("half day")||q.includes("wage")){
-        reply="**Haajri entry:**\n\nIn Attendance → Step 2 (Haajri Entry), each present worker has a number input.\n\n• 1.0 = Full day\n• 0.5 = Half day\n• 0.75 = 6 hours\n\nDaily wage = Haajri × Rate per day.\n\nYou can also edit past days from the 📋 Haajri Card on any worker.";
-      } else if(q.includes("rejoin")||q.includes("left worker")||q.includes("inactive")){
-        reply="**Rejoin a Left worker:**\n\n1. Go to **Workers** (Master menu)\n2. Filter by Status → Left\n3. Find the worker → Click green **↑ Rejoin** button\n4. Select site, store, building, enter rate and joining date\n5. Confirm → Worker becomes Active immediately";
-      } else if(q.includes("building")||q.includes("assign")){
-        reply="**Assign worker to building:**\n\nIn Attendance → Step 3 (Buildings):\n1. Tap workers to select them (checkbox)\n2. Choose building from dropdown\n3. Set hours (8/6/4/2)\n4. Click Assign\n\nOne worker can be split across buildings — e.g. 4 hrs Building A + 4 hrs Building B.";
-      } else if(q.includes("gtv")){
-        reply="**GTV (Gone To Village):**\n\nGTV means the worker has gone to their home village temporarily but is expected to return.\n\n• Only SIC or Admin can change status to/from GTV\n• Worker stays in your database\n• When they return, SIC changes status back to Active\n• GTV workers are not counted in site attendance";
-      } else if(q.includes("ppe")||q.includes("helmet")||q.includes("gumboot")){
-        reply="**PPE Issue rules:**\n\n• **Helmet** — Always issued to every new worker\n• **Gumboots** — Always issued\n• **Safety Belt** — Only when job requires it (height work, etc.)\n\nPPE is issued through Labour Entry → Step 5 (PPE Issue). Stock deducts from store automatically. Worker must sign acknowledgment.";
-      } else if(q.includes("dpr")||q.includes("daily progress")||q.includes("report")){
-        reply="**DPR (Daily Progress Report):**\n\nGo to **DPR** module:\n1. Select site, building, date\n2. Manpower counts auto-fill from Attendance data\n3. Fill Today's Progress, Tomorrow's Schedule, Hindrance\n4. Click **Save & Print** → opens printable A4 format\n\nDPR must be submitted daily by site supervisor/SIC.";
-      } else if(q.includes("worker")||q.includes("search")||q.includes("find")){
-        reply="**Finding a worker:**\n\nGo to **Workers** (Master menu). The search bar covers:\n• Worker name (or father's name)\n• Worker code (UA-NNNNN)\n• Trade (Carpenter, M/C, BRM etc.)\n• Mobile number\n• Aadhaar number\n\nYou can also filter by Site and Status (Active/Left/GTV).";
-      } else if(q.includes("store")||q.includes("material")||q.includes("stock")){
-        reply="**Store & Materials:**\n\nMaterials are set up in **Materials** master (Masters menu). Current categories:\nAccessories, Consumables, Electrical, Furniture, Measuring, Medical, PPE, Power Tools, Shuttering & Centering, Stationery, Tools, Machinery.\n\nStore Operations (inward/outward/stock ledger) is coming soon in Phase 2.";
-      } else if(q.includes("payroll")||q.includes("salary")){
-        reply="**Payroll:**\n\nPayroll module is planned for Phase 2. It will:\n• Calculate monthly salary from Haajri records\n• Apply deductions (GTV kharchi, tool debits)\n• Generate salary sheets for office submission\n\nFor now, you can track daily wages in the Attendance Haajri Entry step.";
-      } else {
-        reply=`I understand you're asking about: **"${userMsg.content}"**\n\nI'm currently in offline mode (the AI service requires internet connection and API setup). Here's what I can help you with:\n\n• Absent/Present marking\n• Haajri entry\n• Rejoining workers\n• Building assignment\n• GTV status\n• PPE issue\n• DPR reports\n• Finding workers\n\nType any of these topics and I'll guide you step by step.`;
-      }
-
-      setMsgs(prev=>[...prev,{role:"assistant",content:reply,_offline:true}]);
-    }
-    setLoading(false);
-  };
-
-  const quickActions=[
-    "How do I mark a worker absent?",
-    "How to enter Haajri for half day?",
-    "How to rejoin a Left worker?",
-    "How to assign worker to a building?",
-    "What is GTV?",
-  ];
-
-  // Simple markdown-like renderer
-  const renderMsg=(text)=>{
-    return text.split("\n").map((line,i)=>{
-      line=line.replace(/\*\*(.*?)\*\*/g,"<b>$1</b>");
-      line=line.replace(/\*(.*?)\*/g,"<i>$1</i>");
-      const isBullet=line.startsWith("•")||line.startsWith("-");
-      return <p key={i} style={{margin:"2px 0",paddingLeft:isBullet?"8px":0,
-        fontSize:13,lineHeight:1.5}} dangerouslySetInnerHTML={{__html:line}}/>;
-    });
-  };
-
-  return <>
-    {/* Floating button — hidden on print */}
-    <button className="no-print" onClick={()=>setOpen(o=>!o)}
-      style={{position:"fixed",bottom:28,right:24,zIndex:1000,
-        width:52,height:52,borderRadius:"50%",border:"none",cursor:"pointer",
-        background:"linear-gradient(135deg,#1D4ED8,#7C3AED)",
-        boxShadow:"0 4px 20px rgba(29,78,216,.4)",
-        display:"flex",alignItems:"center",justifyContent:"center",
-        animation:pulse?"pulse 0.6s ease-in-out 3":"none"}}>
-      <span style={{fontSize:22}}>{open?"✕":"🤖"}</span>
-    </button>
-    {/* Suggestion badge */}
-    {suggestions.length>0&&!open&&<div className="no-print" style={{position:"fixed",bottom:88,right:16,zIndex:999,
-      background:"#fff",borderRadius:12,padding:"8px 14px",
-      boxShadow:"0 4px 16px rgba(0,0,0,.15)",border:`1px solid ${C.border}`,
-      maxWidth:220,fontSize:12,color:C.text,fontWeight:500,cursor:"pointer"}}
-      onClick={()=>{setOpen(true);setSuggestions([]);}}>
-      💡 {suggestions[0]}
-    </div>}
-
-    {/* Chat panel */}
-    {open&&<div className="no-print" style={{position:"fixed",bottom:92,right:24,zIndex:1000,
-      width:360,maxWidth:"calc(100vw - 32px)",
-      height:500,display:"flex",flexDirection:"column",
-      background:"#fff",borderRadius:16,
-      boxShadow:"0 12px 48px rgba(0,0,0,.2)",
-      border:`1px solid ${C.border}`,overflow:"hidden"}}>
-
-      {/* Header */}
-      <div style={{background:"linear-gradient(135deg,#0F172A,#1D4ED8)",
-        padding:"12px 16px",flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:36,height:36,borderRadius:"50%",background:"rgba(255,255,255,.15)",
-            display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>🤖</div>
-          <div>
-            <p style={{margin:0,fontWeight:800,color:"#fff",fontSize:14}}>Mengram</p>
-            <p style={{margin:0,fontSize:10,color:"rgba(255,255,255,.6)"}}>SiteOS AI Helper · {currentModule||"Dashboard"}</p>
-          </div>
-          <div style={{marginLeft:"auto",width:8,height:8,borderRadius:"50%",background:"#4ade80"}}/>
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:8}}>
-        {msgs.map((m,i)=>(
-          <div key={i} style={{display:"flex",flexDirection:"column",
-            alignItems:m.role==="user"?"flex-end":"flex-start"}}>
-            <div style={{
-              maxWidth:"85%",padding:"9px 12px",borderRadius:12,
-              background:m.role==="user"?"#1D4ED8":"#F8FAFC",
-              color:m.role==="user"?"#fff":C.text,
-              border:m.role==="user"?"none":`1px solid ${C.border}`,
-              borderBottomRightRadius:m.role==="user"?2:12,
-              borderBottomLeftRadius:m.role==="assistant"?2:12,
-            }}>
-              {renderMsg(m.content)}
-            </div>
-          </div>
-        ))}
-        {loading&&<div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0"}}>
-          <div style={{width:8,height:8,borderRadius:"50%",background:C.accent,
-            animation:"pulse 0.8s infinite"}}/>
-          <span style={{fontSize:11,color:C.muted}}>Mengram is thinking...</span>
-        </div>}
-        <div ref={msgsEndRef}/>
-      </div>
-
-      {/* Quick actions */}
-      {msgs.length<=2&&<div style={{padding:"4px 14px 8px",display:"flex",flexWrap:"wrap",gap:4,flexShrink:0}}>
-        {quickActions.map((q,i)=>(
-          <button key={i} onClick={()=>{setInput(q);}}
-            style={{fontSize:10,padding:"3px 8px",borderRadius:20,border:`1px solid ${C.border}`,
-              background:"#F8FAFC",cursor:"pointer",fontFamily:"inherit",color:C.text}}>
-            {q}
-          </button>
-        ))}
-      </div>}
-
-      {/* Input */}
-      <div style={{padding:"10px 12px",borderTop:`1px solid ${C.border}`,flexShrink:0,
-        display:"flex",gap:8,alignItems:"flex-end"}}>
-        <textarea value={input}
-          onChange={e=>setInput(e.target.value)}
-          onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
-          placeholder="Ask anything about SiteOS..."
-          rows={1} style={{flex:1,padding:"8px 10px",border:`1.5px solid ${C.border}`,
-            borderRadius:8,fontSize:13,fontFamily:"inherit",resize:"none",outline:"none",
-            lineHeight:1.4,maxHeight:80,overflowY:"auto"}}/>
-        <button onClick={sendMessage} disabled={!input.trim()||loading}
-          style={{width:36,height:36,borderRadius:"50%",border:"none",
-            background:input.trim()?"#1D4ED8":"#E2E8F0",
-            color:input.trim()?"#fff":C.muted,cursor:input.trim()?"pointer":"default",
-            display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:16}}>
-          ➤
-        </button>
-      </div>
-    </div>}
-
-    <style>{`
-      @keyframes pulse{0%,100%{transform:scale(1);opacity:1;}50%{transform:scale(1.15);opacity:0.8;}}
-    `}</style>
-  </>;
-};
-
-
-
 // ─── GTV REPOSITORY + WORKER HISTORY ────────────────────────────
 // ─── GTV REPOSITORY (SIC/Owner only) ─────────────────────────────
 // ══════════════════════════════════════════════════════════════════
@@ -9248,6 +9073,7 @@ function App(){
   const [pendingCount,setPending]=useState(0);
   const [profileOpen,setProfileOpen]=useState(false);
   const [pendingEditWorker,setPendingEditWorker]=useState(null);
+  const [pendingNewWorker,setPendingNewWorker]=useState(false); // triggers LabourEntry wizard open
   // Multi-site SIC: track assigned sites and active selection
   const [assignedSiteIds,setAssignedSiteIds]=useState([]);
   const [assignedSites,setAssignedSites]=useState([]);
@@ -9540,7 +9366,7 @@ function App(){
       assignedSiteIds, assignedSites,
       isUnrestricted,
       setActive,
-      pendingEditWorker, setPendingEditWorker,
+      pendingEditWorker, setPendingEditWorker, pendingNewWorker, setPendingNewWorker,
     }}>
       <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
         {!isMob&&<div style={{width:210,background:C.sidebar,display:"flex",flexDirection:"column",flexShrink:0}}>
@@ -9592,10 +9418,7 @@ function App(){
           </div>
         </div>
       </div>
-      {/* Mengram AI Helper — global floating widget */}
-      <MengramHelper
-        currentModule={NAV.find(n=>n.id===active)?.label||"Dashboard"}
-        userName={authUser.name}/>
+
     </AuthCtx.Provider>
   );
 }
