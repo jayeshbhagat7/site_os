@@ -4790,63 +4790,271 @@ const WorkerPrintForm=({worker:printWorker,onClose})=>{
 
 
 // ── Worker ID Card ────────────────────────────────────────────────
-const WorkerIdCard=({worker:idCardWorker,onClose})=>{
-  if(!idCardWorker)return null;
-  return <Modal open={!!idCardWorker} onClose={onClose} title="Identity Card" width={400}>
-    <div id="id-card-print" style={{border:"2.5px solid #1D4ED8",borderRadius:14,overflow:"hidden",
-      background:"#fff",maxWidth:340,margin:"0 auto"}}>
-      <div style={{background:"linear-gradient(135deg,#0F172A,#1D4ED8)",
-        padding:"12px 16px",textAlign:"center"}}>
-        <p style={{margin:0,color:"#fff",fontWeight:900,fontSize:15,letterSpacing:".05em"}}>UMIYA ASSOCIATES</p>
-        <p style={{margin:"2px 0 0",color:"rgba(255,255,255,.7)",fontSize:10}}>CONSTRUCTION ERP — IDENTITY CARD</p>
-      </div>
-      <div style={{padding:16,display:"flex",gap:14,alignItems:"flex-start"}}>
-        {idCardWorker.worker_photo_url
-          ?<img src={idCardWorker.worker_photo_url} style={{width:72,height:88,objectFit:"cover",
-            borderRadius:6,border:"2px solid #1D4ED8",flexShrink:0}}/>
-          :<div style={{width:72,height:88,borderRadius:6,background:"#EFF6FF",
-            display:"flex",alignItems:"center",justifyContent:"center",
-            border:"2px dashed #93C5FD",flexShrink:0}}>
-            <span style={{fontSize:26,fontWeight:700,color:"#1D4ED8"}}>
-              {idCardWorker.worker_name[0].toUpperCase()}
-            </span>
-          </div>}
-        <div style={{flex:1}}>
-          <p style={{margin:0,fontWeight:800,fontSize:14,color:"#0F172A",lineHeight:1.2}}>{idCardWorker.worker_name}</p>
-          {idCardWorker.father_name&&<p style={{margin:"3px 0 0",fontSize:10,color:"#64748B"}}>S/o {idCardWorker.father_name}</p>}
-          <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:3}}>
-            {[["Code",idCardWorker.worker_code,"#1D4ED8"],["Trade",idCardWorker.trade,null],
-              ["Site",idCardWorker.sites?.site_name||"—",null],["Joined",idCardWorker.date_joined||"—",null],
-              idCardWorker.mobile&&["Mobile",idCardWorker.mobile,null]].filter(Boolean).map(([k,v,col])=>(
-              <div key={k} style={{display:"flex",gap:4}}>
-                <span style={{fontSize:10,fontWeight:700,color:"#64748B",width:50}}>{k}</span>
-                <span style={{fontSize:10,fontWeight:col?700:600,color:col||"#0F172A"}}>{v}</span>
+const WorkerIdCard=({worker:w,onClose})=>{
+  if(!w)return null;
+  const RED="#9B1C1C";const DARKRED="#7F1D1D";const LIGHTRED="#FEE2E2";
+  const siteName=w.sites?.site_name||"—";
+  const siteLocation=w.sites?.location||"";
+  const siteClient=w.sites?.client_name||"";
+
+  const printCard=()=>{
+    const front=document.getElementById("id-card-front");
+    const back=document.getElementById("id-card-back");
+    const pw=window.open("","_blank","width=900,height=500");
+    // KEY FIX: force browser to render mm units at true physical size
+    // 90mm @ 96dpi = 340.16px, 55mm @ 96dpi = 207.87px
+    // We set @page to exact card pair size so browser doesn't scale
+    pw.document.write(`<!DOCTYPE html><html><head><title>ID Card — ${w.worker_code}</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+    <style>
+      /* Force true physical mm — no browser scaling */
+      html{font-size:16px}
+      @page{
+        size:200mm 70mm;
+        margin:0;
+      }
+      *{margin:0;padding:0;box-sizing:border-box;
+        -webkit-print-color-adjust:exact;print-color-adjust:exact;
+        color-adjust:exact}
+      body{
+        font-family:Arial,sans-serif;
+        background:#fff;
+        width:200mm;
+        height:70mm;
+        display:flex;
+        flex-direction:row;
+        align-items:flex-start;
+        padding:5mm;
+        gap:5mm;
+      }
+      /* Each card: exact physical 90x55mm */
+      .card-wrap{display:flex;flex-direction:column;align-items:center;gap:1mm}
+      .card-label{font-size:5pt;font-family:Arial,sans-serif;color:#94a3b8;font-weight:700;
+        letter-spacing:.08em;text-transform:uppercase}
+      .card{
+        width:90mm !important;
+        height:55mm !important;
+        min-width:90mm !important;
+        min-height:55mm !important;
+        max-width:90mm !important;
+        max-height:55mm !important;
+        overflow:hidden;
+        flex-shrink:0;
+        position:relative;
+      }
+      /* Cut line between front and back */
+      .cut-col{
+        display:flex;flex-direction:column;align-items:center;
+        justify-content:center;padding-top:6mm;gap:1mm;
+      }
+      .cut-line{
+        border-left:0.3mm dashed #CBD5E1;
+        height:55mm;
+      }
+      .cut-txt{
+        font-size:5pt;color:#CBD5E1;font-family:Arial,sans-serif;
+        writing-mode:vertical-rl;letter-spacing:.05em;
+      }
+      @media screen{
+        body{transform-origin:top left;}
+      }
+    </style></head><body>
+    <div class="card-wrap">
+      <span class="card-label">① FRONT</span>
+      <div class="card">${front.innerHTML}</div>
+    </div>
+    <div class="cut-col">
+      <span class="cut-txt">✂ cut here</span>
+      <div class="cut-line"></div>
+    </div>
+    <div class="card-wrap">
+      <span class="card-label">② BACK</span>
+      <div class="card">${back.innerHTML}</div>
+    </div>
+    </body></html>`);
+    pw.document.close();
+    // Wait for full render then print
+    pw.onload=()=>{
+      setTimeout(()=>{pw.focus();pw.print();},300);
+    };
+  };
+
+  const cardStyle={
+    width:"90mm",height:"55mm",border:`0.5mm solid ${RED}`,borderRadius:"2mm",
+    overflow:"hidden",background:"#fff",fontFamily:"Arial,sans-serif",
+    boxShadow:"0 4px 24px rgba(0,0,0,.22)",flexShrink:0,
+    display:"flex",flexDirection:"column",
+  };
+
+  return <Modal open={!!w} onClose={onClose} title="ID Card — Print Preview" width={520}>
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
+      <p style={{fontSize:11,color:"#64748B",margin:0,textAlign:"center"}}>
+        Physical size: <b>90 mm × 55 mm</b> — Print both sides, cut, paste back-to-back into card sleeve
+      </p>
+
+      {/* ═══════ FRONT SIDE ═══════ */}
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <span style={{fontSize:9,fontWeight:700,color:RED,writingMode:"vertical-rl",
+          transform:"rotate(180deg)",letterSpacing:".12em",opacity:.7}}>FRONT</span>
+        <div id="id-card-front" style={cardStyle}>
+          {/* Header */}
+          <div style={{background:RED,height:"9mm",flexShrink:0,display:"flex",
+            alignItems:"center",justifyContent:"space-between",padding:"0 3mm"}}>
+            <span style={{color:"#fff",fontWeight:900,fontSize:"4.5mm",letterSpacing:".07em"}}>IDENTITY CARD</span>
+            <span style={{color:"rgba(255,255,255,.75)",fontSize:"2mm",fontWeight:600,letterSpacing:".04em"}}>UMIYA ASSOCIATES</span>
+          </div>
+
+          {/* Body */}
+          <div style={{flex:1,display:"flex",position:"relative",overflow:"hidden",minHeight:0}}>
+            {/* Subtle arc */}
+            <svg style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",pointerEvents:"none"}}
+              preserveAspectRatio="none" viewBox="0 0 340 174">
+              <path d="M0,0 L115,0 Q68,87 115,174 L0,174 Z" fill={RED} opacity="0.09"/>
+            </svg>
+
+            {/* Photo col */}
+            <div style={{width:"24mm",flexShrink:0,padding:"2mm 1mm 2mm 3mm",zIndex:1,
+              display:"flex",flexDirection:"column",alignItems:"center",gap:"1mm"}}>
+              <div style={{width:"20mm",height:"24mm",border:`0.4mm solid ${RED}`,
+                borderRadius:"1mm",overflow:"hidden",background:LIGHTRED,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {w.worker_photo_url
+                  ?<img src={w.worker_photo_url} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                  :<svg viewBox="0 0 60 80" width="13mm" height="17mm" fill={RED} opacity="0.45">
+                    <circle cx="30" cy="22" r="13"/>
+                    <path d="M5,80 Q5,50 30,50 Q55,50 55,80 Z"/>
+                  </svg>}
               </div>
-            ))}
+              {/* Code badge under photo */}
+              <div style={{background:RED,borderRadius:"0.7mm",padding:"0.5mm 1.5mm",
+                textAlign:"center",width:"100%"}}>
+                <span style={{color:"#fff",fontSize:"2.1mm",fontWeight:800,letterSpacing:".03em"}}>{w.worker_code}</span>
+              </div>
+            </div>
+
+            {/* Detail col */}
+            <div style={{flex:1,padding:"2mm 2.5mm 1mm 1mm",zIndex:1,display:"flex",
+              flexDirection:"column",justifyContent:"center",gap:"0.4mm"}}>
+              <div style={{fontSize:"3mm",fontWeight:900,color:"#0F172A",lineHeight:1.15,marginBottom:"0.3mm"}}>
+                {w.worker_name}
+              </div>
+              {w.father_name&&<div style={{fontSize:"2.2mm",color:"#64748B",marginBottom:"1mm"}}>
+                S/o {w.father_name}
+              </div>}
+              {[
+                ["Designation", w.trade],
+                ["Site",        siteName],
+                siteLocation && ["Location", siteLocation],
+                siteClient   && ["Client",   siteClient],
+                ["Joined",      w.date_joined||"—"],
+              ].filter(Boolean).map(([k,v])=>(
+                <div key={k} style={{display:"flex",gap:"1mm",alignItems:"baseline"}}>
+                  <span style={{fontSize:"1.9mm",fontWeight:700,color:RED,width:"16mm",flexShrink:0}}>{k}</span>
+                  <span style={{fontSize:"2.3mm",fontWeight:600,color:"#0F172A",lineHeight:1,flex:1}}>{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Footer — signatures */}
+          <div style={{background:RED,flexShrink:0,height:"7mm",
+            display:"flex",alignItems:"center",justifyContent:"space-between",
+            padding:"0 3mm",borderTop:`0.3mm solid ${DARKRED}`}}>
+            <div style={{textAlign:"center"}}>
+              <div style={{width:"17mm",borderBottom:"0.3mm solid rgba(255,255,255,.55)",marginBottom:"1mm"}}/>
+              <span style={{fontSize:"1.7mm",color:"rgba(255,255,255,.9)",fontWeight:700,letterSpacing:".03em"}}>CLIENT STAMP</span>
+            </div>
+            <span style={{fontSize:"1.5mm",color:"rgba(255,255,255,.45)",textAlign:"center",letterSpacing:".04em"}}>
+              Valid for above site only
+            </span>
+            <div style={{textAlign:"center"}}>
+              <div style={{width:"17mm",borderBottom:"0.3mm solid rgba(255,255,255,.55)",marginBottom:"1mm"}}/>
+              <span style={{fontSize:"1.7mm",color:"rgba(255,255,255,.9)",fontWeight:700,letterSpacing:".03em"}}>SITE INCHARGE</span>
+            </div>
           </div>
         </div>
       </div>
-      {idCardWorker.aadhaar_number&&<div style={{background:"#F8FAFC",padding:"6px 16px",
-        borderTop:"1px dashed #CBD5E1",fontSize:10,color:"#475569"}}>
-        Aadhaar: <b>{idCardWorker.aadhaar_number}</b>
-      </div>}
-      <div style={{display:"flex",justifyContent:"space-between",padding:"10px 16px",borderTop:"1px solid #E2E8F0"}}>
-        <div style={{textAlign:"center"}}>
-          <div style={{width:80,height:24,borderBottom:"1px solid #94A3B8",marginBottom:3}}/>
-          <p style={{margin:0,fontSize:9,color:"#64748B",fontWeight:600}}>CLIENT STAMP</p>
-        </div>
-        <div style={{textAlign:"center"}}>
-          <div style={{width:80,height:24,borderBottom:"1px solid #94A3B8",marginBottom:3}}/>
-          <p style={{margin:0,fontSize:9,color:"#64748B",fontWeight:600}}>SITE INCHARGE</p>
+
+      <div style={{fontSize:10,color:"#CBD5E1",letterSpacing:".05em"}}>✂ &nbsp; cut here — flip & align back ✂</div>
+
+      {/* ═══════ BACK SIDE ═══════ */}
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <span style={{fontSize:9,fontWeight:700,color:RED,writingMode:"vertical-rl",
+          transform:"rotate(180deg)",letterSpacing:".12em",opacity:.7}}>BACK</span>
+        <div id="id-card-back" style={cardStyle}>
+          {/* Header */}
+          <div style={{background:RED,height:"8mm",flexShrink:0,display:"flex",
+            alignItems:"center",justifyContent:"center",gap:"2.5mm"}}>
+            {/* Wave-mark logo mirroring physical card */}
+            <svg viewBox="0 0 48 20" width="9mm" height="3.7mm">
+              <polyline points="2,16 10,4 18,13 26,4 34,13 42,4 46,16"
+                stroke="white" strokeWidth="3.2" fill="none" strokeLinejoin="round" strokeLinecap="round"/>
+            </svg>
+            <span style={{color:"#fff",fontSize:"3mm",fontWeight:800,letterSpacing:".06em"}}>UMIYA ASSOCIATES</span>
+          </div>
+
+          {/* Back body — two columns */}
+          <div style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
+
+            {/* LEFT — Site address */}
+            <div style={{flex:1,padding:"1.5mm 2mm 1mm 3mm",
+              borderRight:`0.3mm dashed ${RED}`,display:"flex",flexDirection:"column",gap:"1mm"}}>
+              <div style={{fontSize:"1.8mm",fontWeight:800,color:RED,
+                textTransform:"uppercase",letterSpacing:".08em"}}>Site Address</div>
+              <div style={{fontSize:"2.2mm",color:"#0F172A",lineHeight:1.45,flex:1}}>
+                <b>{siteName}</b>
+                {siteLocation&&<><br/>{siteLocation}</>}
+                {siteClient&&<><br/><span style={{color:"#64748B",fontSize:"2mm"}}>Client: {siteClient}</span></>}
+              </div>
+              {w.aadhaar_number&&<div style={{marginTop:"auto",paddingTop:"1mm",
+                borderTop:`0.2mm dashed ${LIGHTRED}`}}>
+                <span style={{fontSize:"1.8mm",color:RED,fontWeight:700}}>Aadhaar: </span>
+                <span style={{fontSize:"1.8mm",color:"#0F172A",fontWeight:700,letterSpacing:".04em"}}>{w.aadhaar_number}</span>
+              </div>}
+            </div>
+
+            {/* RIGHT — Worker contact */}
+            <div style={{width:"42mm",flexShrink:0,padding:"1.5mm 2.5mm 1mm 2mm",
+              display:"flex",flexDirection:"column",gap:"1.2mm"}}>
+              <div style={{fontSize:"1.8mm",fontWeight:800,color:RED,
+                textTransform:"uppercase",letterSpacing:".08em"}}>Worker Contact</div>
+              {w.mobile&&<div>
+                <div style={{fontSize:"1.7mm",color:"#94A3B8",fontWeight:600}}>Mobile (Personal)</div>
+                <div style={{fontSize:"2.5mm",color:"#0F172A",fontWeight:800,letterSpacing:".02em"}}>{w.mobile}</div>
+              </div>}
+              {w.mobile_home&&<div>
+                <div style={{fontSize:"1.7mm",color:"#94A3B8",fontWeight:600}}>Mobile (Home/Village)</div>
+                <div style={{fontSize:"2.3mm",color:"#0F172A",fontWeight:700}}>{w.mobile_home}</div>
+              </div>}
+              {w.home_address&&<div>
+                <div style={{fontSize:"1.7mm",color:"#94A3B8",fontWeight:600}}>Home Address</div>
+                <div style={{fontSize:"2mm",color:"#0F172A",lineHeight:1.35}}>{w.home_address}</div>
+              </div>}
+              {(w.relative_name||w.relative_mobile)&&
+                <div style={{marginTop:"auto",paddingTop:"1mm",
+                  borderTop:`0.25mm dashed ${RED}`}}>
+                  <div style={{fontSize:"1.7mm",color:RED,fontWeight:800,marginBottom:"0.3mm"}}>Emergency Contact</div>
+                  {w.relative_name&&<div style={{fontSize:"2mm",color:"#0F172A",fontWeight:700}}>{w.relative_name}</div>}
+                  {w.relative_mobile&&<div style={{fontSize:"2.3mm",color:"#0F172A",fontWeight:800,letterSpacing:".02em"}}>{w.relative_mobile}</div>}
+                </div>}
+            </div>
+          </div>
+
+          {/* Back footer */}
+          <div style={{background:LIGHTRED,flexShrink:0,height:"5mm",
+            borderTop:`0.3mm solid ${RED}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <span style={{fontSize:"1.9mm",color:DARKRED,fontWeight:700,letterSpacing:".04em"}}>
+              If found, please return to above address
+            </span>
+          </div>
         </div>
       </div>
-      <div style={{background:"#0F172A",padding:"6px 16px",textAlign:"center"}}>
-        <p style={{margin:0,fontSize:9,color:"rgba(255,255,255,.5)"}}>Valid only for the above mentioned project site</p>
+
+      {/* Action buttons */}
+      <div style={{display:"flex",gap:8,marginTop:4}}>
+        <Btn style={{background:RED,borderColor:DARKRED}} onClick={printCard}>🖨 Print ID Card</Btn>
+        <Btn variant="ghost" onClick={onClose}>Close</Btn>
       </div>
-    </div>
-    <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"center"}}>
-      <Btn style={{background:"#6366f1",borderColor:"#6366f1"}} onClick={()=>window.print()}>🖨 Print ID Card</Btn>
-      <Btn variant="ghost" onClick={onClose}>Close</Btn>
     </div>
   </Modal>;
 };
