@@ -3026,6 +3026,461 @@ const VendorMaster=()=>{
   </div>;
 };
 
+
+// ─── PAYROLL MODULE ──────────────────────────────────────────────
+const PayrollModule=()=>{
+  const {user,perms,assignedSiteIds,isUnrestricted}=useAuth();
+  if(!hasPerm(perms,"Payroll","can_view"))return <NoAccess module="Payroll"/>;
+  const canEdit=hasPerm(perms,"Payroll","can_add");
+  const [tab,setTab]=useState("runs");
+  const [sites,setSites]=useState([]);
+  const [wallets,setWallets]=useState([]);
+  const [selSite,setSelSite]=useState("");
+  const [fromDate,setFromDate]=useState(()=>{const d=new Date();d.setDate(1);return d.toISOString().split("T")[0];});
+  const [toDate,setToDate]=useState(()=>new Date().toISOString().split("T")[0]);
+  const [entries,setEntries]=useState([]);
+  const [runs,setRuns]=useState([]);
+  const [selRun,setSelRun]=useState(null);
+  const [runEntries,setRunEntries]=useState([]);
+  const [advances,setAdvances]=useState([]);
+  const [siteWorkers,setSiteWorkers]=useState([]);
+  const [advForm,setAdvForm]=useState({worker_id:"",amount:"",payment_date:new Date().toISOString().split("T")[0],description:"",mode_type:"cash",wallet_id:""});
+  const [advOpen,setAdvOpen]=useState(false);
+  const [calcDone,setCalcDone]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [loading,setLoading]=useState(false);
+  const [toast,setToast]=useState(null);
+  const show=(msg,type="success")=>{setToast({msg,type});setTimeout(()=>setToast(null),3500);};
+  const fmtDate=d=>d?new Date(d).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}):"--";
+  const fmtMoney=n=>"₹"+(parseFloat(n)||0).toLocaleString("en-IN",{minimumFractionDigits:0,maximumFractionDigits:0});
+  const statusBadge=s=>{
+    const cfg={draft:{col:C.orange,bg:C.orangeBg},paid:{col:C.green,bg:C.greenBg},approved:{col:C.blue,bg:C.blueBg}};
+    const c=cfg[s]||cfg.draft;
+    return <span style={{background:c.bg,color:c.col,padding:"2px 8px",borderRadius:12,fontSize:11,fontWeight:600}}>{s.toUpperCase()}</span>;
+  };
+
+  useEffect(()=>{
+    (async()=>{
+      let q=sb.from("sites").select("site_id,site_name").eq("is_active",true).order("site_name");
+      if(!isUnrestricted&&assignedSiteIds.length>0) q=q.in("site_id",assignedSiteIds);
+      const {data:s}=await q; setSites(s||[]);
+      if((s||[]).length===1) setSelSite(String(s[0].site_id));
+      const {data:w}=await sb.from("cash_wallets").select("wallet_id,person_name,current_balance").eq("is_active",true).order("person_name");
+      setWallets(w||[]);
+    })();
+  },[]);
+
+  const loadRuns=async()=>{
+    if(!selSite) return;
+    const {data}=await sb.from("payroll_runs")
+      .select("run_id,from_date,to_date,run_date,status,total_amount,app_users(name)")
+      .eq("site_id",parseInt(selSite))
+      .order("from_date",{ascending:false});
+    setRuns(data||[]);
+  };
+  useEffect(()=>{loadRuns();setSiteWorkers([]);setCalcDone(false);setEntries([]);setSelRun(null);
+    if(selSite){
+      sb.from("workers").select("id,worker_name,worker_code,trade,per_day_rate")
+        .eq("current_site_id",parseInt(selSite)).eq("status","Active").order("worker_name")
+        .then(({data})=>setSiteWorkers(data||[]));
+    }
+  },[selSite]);
+
+  const loadAdvances=async()=>{
+    if(!selSite) return;
+    const {data}=await sb.from("labour_advances")
+      .select("advance_id,payment_date,amount,mode_type,description,workers(worker_name,worker_code),cash_wallets(person_name)")
+      .eq("site_id",parseInt(selSite))
+      .order("payment_date",{ascending:false}).limit(300);
+    setAdvances(data||[]);
+  };
+  useEffect(()=>{if(tab==="advance") loadAdvances();},[tab,selSite]);
+
+  const calculate=async()=>{
+    if(!selSite){show("Select a site first","error");return;}
+    setLoading(true);setCalcDone(false);
+    const {data:wks}=await sb.from("workers")
+      .select("id,worker_name,worker_code,trade,per_day_rate")
+      .eq("current_site_id",parseInt(selSite)).eq("status","Active").order("worker_name");
+    if(!wks?.length){show("No active workers on this site","error");setLoading(false);return;}
+    const {data:sessions}=await sb.from("attendance_sessions")
+      .select("id").eq("site_id",parseInt(selSite))
+      .gte("att_date",fromDate).lte("att_date",toDate);
+    const sessIds=(sessions||[]).map(s=>s.id);
+    let attMap={};
+    if(sessIds.length>0){
+      const {data:recs}=await sb.from("attendance_records")
+        .select("worker_id,haajri,is_present").in("session_id",sessIds).eq("is_present",true);
+      (recs||[]).forEach(r=>{attMap[r.worker_id]=(attMap[r.worker_id]||0)+(parseFloat(r.haajri)||1);});
+    }
+    const {data:advs}=await sb.from("labour_advances")
+      .select("worker_id,amount").eq("site_id",parseInt(selSite))
+      .gte("payment_date",fromDate).lte("payment_date",toDate);
+    const advMap={};
+    (advs||[]).forEach(a=>{advMap[a.worker_id]=(advMap[a.worker_id]||0)+parseFloat(a.amount||0);});
+    const {data:lastRun}=await sb.from("payroll_runs")
+      .select("run_id").eq("site_id",parseInt(selSite)).eq("status","paid")
+      .order("to_date",{ascending:false}).limit(1);
+    let cfMap={};
+    if(lastRun?.length){
+      const {data:le}=await sb.from("payroll_entries").select("worker_id,carry_forward").eq("run_id",lastRun[0].run_id);
+      (le||[]).forEach(e=>{cfMap[e.worker_id]=parseFloat(e.carry_forward||0);});
+    }
+    const rows=wks.map(w=>{
+      const days=parseFloat((attMap[w.id]||0).toFixed(1));
+      const rate=parseFloat(w.per_day_rate||0);
+      const gross=parseFloat((days*rate).toFixed(2));
+      const adv=parseFloat((advMap[w.id]||0).toFixed(2));
+      const cf=parseFloat((cfMap[w.id]||0).toFixed(2));
+      const net=parseFloat(Math.max(0,gross-adv+cf).toFixed(2));
+      const carry=parseFloat(Math.max(0,adv-gross-cf).toFixed(2));
+      return {worker_id:w.id,worker_name:w.worker_name,worker_code:w.worker_code,
+        trade:w.trade,per_day_rate:rate,days_present:days,
+        gross_wages:gross,advances_deducted:adv,carry_forward_in:cf,
+        net_payable:net,carry_forward:carry};
+    });
+    setEntries(rows);setCalcDone(true);setLoading(false);
+  };
+
+  const saveRun=async()=>{
+    if(!calcDone||!entries.length){show("Calculate first","error");return;}
+    setSaving(true);
+    const total=entries.reduce((s,e)=>s+e.net_payable,0);
+    const {data:run,error:re}=await sb.from("payroll_runs").insert({
+      site_id:parseInt(selSite),from_date:fromDate,to_date:toDate,
+      run_date:new Date().toISOString().split("T")[0],
+      status:"draft",total_amount:total,
+      created_by:user.user_id,tenant_id:user.tenant_id
+    }).select().single();
+    if(re){show("Error saving run: "+re.message,"error");setSaving(false);return;}
+    const insRows=entries.map(e=>({
+      run_id:run.run_id,worker_id:e.worker_id,site_id:parseInt(selSite),
+      days_present:e.days_present,per_day_rate:e.per_day_rate,
+      gross_wages:e.gross_wages,advances_deducted:e.advances_deducted,
+      net_payable:e.net_payable,carry_forward:e.carry_forward,
+      status:"pending",tenant_id:user.tenant_id
+    }));
+    const {error:ee}=await sb.from("payroll_entries").insert(insRows);
+    if(ee){show("Error saving entries: "+ee.message,"error");setSaving(false);return;}
+    show("Payroll run saved successfully");
+    setCalcDone(false);setEntries([]);loadRuns();setSaving(false);
+  };
+
+  const markPaid=async(run,ev)=>{
+    if(ev) ev.stopPropagation();
+    if(!window.confirm("Mark this payroll run as PAID? This cannot be undone.")) return;
+    await sb.from("payroll_runs").update({status:"paid"}).eq("run_id",run.run_id);
+    await sb.from("payroll_entries").update({status:"paid",payment_date:new Date().toISOString().split("T")[0]}).eq("run_id",run.run_id);
+    show("Marked as paid");loadRuns();
+    if(selRun?.run_id===run.run_id) setSelRun(r=>({...r,status:"paid"}));
+  };
+
+  const openRun=async(run)=>{
+    setSelRun(run);
+    const {data}=await sb.from("payroll_entries")
+      .select("*,workers(worker_name,worker_code,trade)")
+      .eq("run_id",run.run_id).order("workers(worker_name)");
+    setRunEntries(data||[]);
+  };
+
+  const saveAdvance=async()=>{
+    if(!advForm.worker_id||!advForm.amount||parseFloat(advForm.amount)<=0){show("Select worker and enter amount","error");return;}
+    setSaving(true);
+    const {error}=await sb.from("labour_advances").insert({
+      worker_id:parseInt(advForm.worker_id),site_id:parseInt(selSite),
+      wallet_id:advForm.wallet_id?parseInt(advForm.wallet_id):null,
+      amount:parseFloat(advForm.amount),payment_date:advForm.payment_date,
+      description:advForm.description,mode_type:advForm.mode_type,
+      created_by:user.user_id,tenant_id:user.tenant_id
+    });
+    if(error){show("Error: "+error.message,"error");}
+    else{
+      show("Advance recorded");
+      setAdvForm({worker_id:"",amount:"",payment_date:new Date().toISOString().split("T")[0],description:"",mode_type:"cash",wallet_id:""});
+      setAdvOpen(false);loadAdvances();
+    }
+    setSaving(false);
+  };
+
+  const thStyle={padding:"8px 12px",color:C.muted,fontWeight:600,fontSize:12,whiteSpace:"nowrap"};
+  const tdStyle={padding:"9px 12px",fontSize:13};
+
+  return <div style={{padding:"16px 20px",maxWidth:1100,margin:"0 auto"}}>
+    {toast&&<div style={{position:"fixed",top:20,right:20,zIndex:9999,background:toast.type==="error"?C.red:C.green,
+      color:"#fff",padding:"10px 18px",borderRadius:10,fontWeight:600,fontSize:14,boxShadow:"0 4px 16px rgba(0,0,0,0.2)"}}>{toast.msg}</div>}
+
+    <div style={{marginBottom:20}}>
+      <h2 style={{margin:0,fontSize:20,fontWeight:700,color:C.text}}>Payroll</h2>
+      <p style={{margin:"2px 0 0",fontSize:13,color:C.muted}}>Wage calculation, advance payments, payroll runs</p>
+    </div>
+
+    {/* Site + date filter bar */}
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 16px",marginBottom:16,display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
+      <div style={{flex:"1 1 160px"}}>
+        <label style={{fontSize:11,color:C.muted,fontWeight:600,display:"block",marginBottom:4}}>SITE</label>
+        <select value={selSite} onChange={e=>setSelSite(e.target.value)}
+          style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:14,background:"#fff",color:C.text}}>
+          <option value="">Select site…</option>
+          {sites.map(s=><option key={s.site_id} value={s.site_id}>{s.site_name}</option>)}
+        </select>
+      </div>
+      {tab==="runs"&&<>
+        <div style={{flex:"1 1 130px"}}>
+          <label style={{fontSize:11,color:C.muted,fontWeight:600,display:"block",marginBottom:4}}>FROM</label>
+          <input type="date" value={fromDate} onChange={e=>{setFromDate(e.target.value);setCalcDone(false);}}
+            style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:14}}/>
+        </div>
+        <div style={{flex:"1 1 130px"}}>
+          <label style={{fontSize:11,color:C.muted,fontWeight:600,display:"block",marginBottom:4}}>TO</label>
+          <input type="date" value={toDate} onChange={e=>{setToDate(e.target.value);setCalcDone(false);}}
+            style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:14}}/>
+        </div>
+        {canEdit&&<div style={{display:"flex",gap:8}}>
+          <Btn onClick={calculate} disabled={loading||!selSite} style={{background:C.accent,color:"#fff",borderColor:C.accent,whiteSpace:"nowrap"}}>
+            {loading?"Calculating…":"⚙ Calculate"}
+          </Btn>
+          {calcDone&&<Btn onClick={saveRun} disabled={saving} style={{background:C.green,color:"#fff",borderColor:C.green,whiteSpace:"nowrap"}}>
+            {saving?"Saving…":"💾 Save Run"}
+          </Btn>}
+        </div>}
+      </>}
+      {tab==="advance"&&canEdit&&selSite&&
+        <Btn onClick={()=>setAdvOpen(true)} style={{background:C.accent,color:"#fff",borderColor:C.accent}}>
+          <Ic d={I.plus} s={14} col="#fff"/> Record Advance
+        </Btn>}
+    </div>
+
+    {/* Tabs */}
+    <div style={{display:"flex",gap:2,marginBottom:16,borderBottom:`2px solid ${C.border}`}}>
+      {[["runs","📋 Payroll Runs"],["advance","💵 Advances"]].map(([id,label])=>(
+        <button key={id} onClick={()=>setTab(id)}
+          style={{padding:"8px 20px",border:"none",background:"none",cursor:"pointer",fontSize:14,
+            fontWeight:tab===id?700:400,color:tab===id?C.accent:C.muted,
+            borderBottom:tab===id?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-2}}>
+          {label}
+        </button>
+      ))}
+    </div>
+
+    {/* ── RUNS TAB ── */}
+    {tab==="runs"&&<>
+      {/* Calculated preview table */}
+      {calcDone&&entries.length>0&&<div style={{background:C.card,border:`1px solid ${C.accent}`,borderRadius:10,marginBottom:16,overflow:"hidden"}}>
+        <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,background:C.accentBg,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontWeight:700,fontSize:14,color:C.accent}}>{entries.length} Workers · {fromDate} → {toDate}</span>
+          <span style={{fontWeight:700,fontSize:15,color:C.green}}>Total Net: {fmtMoney(entries.reduce((s,e)=>s+e.net_payable,0))}</span>
+        </div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{background:C.bg}}>
+                {["#","Worker","Code","Days","Rate/Day","Gross","Advances","Net Payable","Carry Fwd"].map((h,i)=>(
+                  <th key={h} style={{...thStyle,textAlign:i>3?"right":"left"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e,i)=>(
+                <tr key={e.worker_id} style={{borderTop:`1px solid ${C.border}`,background:i%2===0?"#fff":C.bg}}>
+                  <td style={{...tdStyle,color:C.faint}}>{i+1}</td>
+                  <td style={{...tdStyle,fontWeight:600}}>{e.worker_name}</td>
+                  <td style={{...tdStyle,color:C.muted,fontSize:12}}>{e.worker_code}</td>
+                  <td style={{...tdStyle,textAlign:"right"}}>{e.days_present}</td>
+                  <td style={{...tdStyle,textAlign:"right"}}>{fmtMoney(e.per_day_rate)}</td>
+                  <td style={{...tdStyle,textAlign:"right"}}>{fmtMoney(e.gross_wages)}</td>
+                  <td style={{...tdStyle,textAlign:"right",color:e.advances_deducted>0?C.red:C.faint}}>{e.advances_deducted>0?fmtMoney(e.advances_deducted):"—"}</td>
+                  <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.green}}>{fmtMoney(e.net_payable)}</td>
+                  <td style={{...tdStyle,textAlign:"right",color:C.orange}}>{e.carry_forward>0?fmtMoney(e.carry_forward):"—"}</td>
+                </tr>
+              ))}
+              <tr style={{borderTop:`2px solid ${C.border}`,background:C.accentBg}}>
+                <td colSpan={4} style={{...tdStyle,fontWeight:700}}>TOTAL</td>
+                <td style={{...tdStyle,textAlign:"right",fontWeight:700}}></td>
+                <td style={{...tdStyle,textAlign:"right",fontWeight:700}}>{fmtMoney(entries.reduce((s,e)=>s+e.gross_wages,0))}</td>
+                <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.red}}>{fmtMoney(entries.reduce((s,e)=>s+e.advances_deducted,0))}</td>
+                <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.green}}>{fmtMoney(entries.reduce((s,e)=>s+e.net_payable,0))}</td>
+                <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.orange}}>{fmtMoney(entries.reduce((s,e)=>s+e.carry_forward,0))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>}
+
+      {/* Past runs */}
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+        <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontWeight:700,fontSize:14}}>Past Payroll Runs</span>
+          {selSite&&<span style={{fontSize:12,color:C.muted}}>{runs.length} runs</span>}
+        </div>
+        {!selSite&&<p style={{padding:24,color:C.muted,textAlign:"center",margin:0}}>Select a site to view payroll runs.</p>}
+        {selSite&&runs.length===0&&<p style={{padding:24,color:C.muted,textAlign:"center",margin:0}}>No payroll runs yet for this site.</p>}
+        {runs.length>0&&<div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{background:C.bg}}>
+                {["Period","Run Date","Workers","Total","Status","By",""].map(h=>(
+                  <th key={h} style={{...thStyle,textAlign:h==="Total"?"right":"left"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {runs.map(r=>(
+                <tr key={r.run_id} style={{borderTop:`1px solid ${C.border}`,cursor:"pointer"}}
+                  onMouseEnter={e=>e.currentTarget.style.background=C.bg}
+                  onMouseLeave={e=>e.currentTarget.style.background=""}
+                  onClick={()=>openRun(r)}>
+                  <td style={{...tdStyle,fontWeight:600}}>{fmtDate(r.from_date)} – {fmtDate(r.to_date)}</td>
+                  <td style={{...tdStyle,color:C.muted}}>{fmtDate(r.run_date)}</td>
+                  <td style={{...tdStyle,color:C.muted}}>—</td>
+                  <td style={{...tdStyle,textAlign:"right",fontWeight:700}}>{fmtMoney(r.total_amount)}</td>
+                  <td style={{...tdStyle}}>{statusBadge(r.status)}</td>
+                  <td style={{...tdStyle,color:C.muted,fontSize:12}}>{r.app_users?.name||"—"}</td>
+                  <td style={{...tdStyle}}>
+                    {canEdit&&r.status==="draft"&&
+                      <Btn size="sm" style={{background:C.green,color:"#fff",borderColor:C.green}}
+                        onClick={ev=>markPaid(r,ev)}>Mark Paid</Btn>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>}
+      </div>
+
+      {/* Run detail panel */}
+      {selRun&&<div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"stretch"}}>
+        <div style={{flex:1,background:"rgba(0,0,0,0.45)"}} onClick={()=>setSelRun(null)}/>
+        <div style={{width:Math.min(820,window.innerWidth),background:C.card,overflowY:"auto",boxShadow:"-6px 0 32px rgba(0,0,0,0.18)"}}>
+          <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:C.card,zIndex:1}}>
+            <div>
+              <p style={{margin:0,fontWeight:700,fontSize:15}}>Payroll Run — {fmtDate(selRun.from_date)} → {fmtDate(selRun.to_date)}</p>
+              <div style={{display:"flex",gap:8,marginTop:4,alignItems:"center"}}>
+                {statusBadge(selRun.status)}
+                <span style={{fontSize:12,color:C.muted}}>Total: {fmtMoney(selRun.total_amount)}</span>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              {canEdit&&selRun.status==="draft"&&
+                <Btn size="sm" style={{background:C.green,color:"#fff",borderColor:C.green}} onClick={ev=>markPaid(selRun,ev)}>Mark Paid</Btn>}
+              <Btn size="sm" variant="ghost" onClick={()=>setSelRun(null)}>✕ Close</Btn>
+            </div>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead>
+                <tr style={{background:C.bg}}>
+                  {["#","Worker","Trade","Days","Rate","Gross","Advances","Net","Carry Fwd","Status"].map((h,i)=>(
+                    <th key={h} style={{...thStyle,textAlign:i>3?"right":h==="Status"?"center":"left"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {runEntries.map((e,i)=>(
+                  <tr key={e.entry_id} style={{borderTop:`1px solid ${C.border}`,background:i%2===0?"#fff":C.bg}}>
+                    <td style={{...tdStyle,color:C.faint}}>{i+1}</td>
+                    <td style={{...tdStyle,fontWeight:600}}>{e.workers?.worker_name||"—"}</td>
+                    <td style={{...tdStyle,color:C.muted,fontSize:12}}>{e.workers?.trade||"—"}</td>
+                    <td style={{...tdStyle,textAlign:"right"}}>{e.days_present}</td>
+                    <td style={{...tdStyle,textAlign:"right"}}>{fmtMoney(e.per_day_rate)}</td>
+                    <td style={{...tdStyle,textAlign:"right"}}>{fmtMoney(e.gross_wages)}</td>
+                    <td style={{...tdStyle,textAlign:"right",color:e.advances_deducted>0?C.red:C.faint}}>{e.advances_deducted>0?fmtMoney(e.advances_deducted):"—"}</td>
+                    <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.green}}>{fmtMoney(e.net_payable)}</td>
+                    <td style={{...tdStyle,textAlign:"right",color:C.orange}}>{e.carry_forward>0?fmtMoney(e.carry_forward):"—"}</td>
+                    <td style={{...tdStyle,textAlign:"center"}}>{statusBadge(e.status)}</td>
+                  </tr>
+                ))}
+                <tr style={{borderTop:`2px solid ${C.border}`,background:C.accentBg}}>
+                  <td colSpan={4} style={{...tdStyle,fontWeight:700}}>TOTAL</td>
+                  <td style={{...tdStyle}}></td>
+                  <td style={{...tdStyle,textAlign:"right",fontWeight:700}}>{fmtMoney(runEntries.reduce((s,e)=>s+parseFloat(e.gross_wages||0),0))}</td>
+                  <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.red}}>{fmtMoney(runEntries.reduce((s,e)=>s+parseFloat(e.advances_deducted||0),0))}</td>
+                  <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.green}}>{fmtMoney(runEntries.reduce((s,e)=>s+parseFloat(e.net_payable||0),0))}</td>
+                  <td colSpan={2}></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>}
+    </>}
+
+    {/* ── ADVANCE TAB ── */}
+    {tab==="advance"&&<>
+      {!selSite&&<p style={{color:C.muted,textAlign:"center",padding:40}}>Select a site above to view advances.</p>}
+      {selSite&&<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+        <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontWeight:700,fontSize:14}}>Labour Advances</span>
+          <span style={{fontSize:12,color:C.muted}}>{advances.length} records</span>
+        </div>
+        {advances.length===0?<p style={{padding:24,color:C.muted,textAlign:"center",margin:0}}>No advances recorded for this site.</p>:
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{background:C.bg}}>
+                {["Date","Worker","Code","Amount","Mode","Paid From Wallet","Description"].map(h=>(
+                  <th key={h} style={{...thStyle,textAlign:h==="Amount"?"right":"left"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {advances.map((a,i)=>(
+                <tr key={a.advance_id} style={{borderTop:`1px solid ${C.border}`,background:i%2===0?"#fff":C.bg}}>
+                  <td style={{...tdStyle,color:C.muted}}>{fmtDate(a.payment_date)}</td>
+                  <td style={{...tdStyle,fontWeight:600}}>{a.workers?.worker_name||"—"}</td>
+                  <td style={{...tdStyle,color:C.muted,fontSize:12}}>{a.workers?.worker_code||"—"}</td>
+                  <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.red}}>{fmtMoney(a.amount)}</td>
+                  <td style={{...tdStyle,color:C.muted,textTransform:"capitalize"}}>{a.mode_type||"cash"}</td>
+                  <td style={{...tdStyle,color:C.muted}}>{a.cash_wallets?.person_name||"—"}</td>
+                  <td style={{...tdStyle,color:C.muted,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.description||"—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>}
+      </div>}
+
+      {/* Advance form slideover */}
+      <SlideOver open={advOpen} onClose={()=>setAdvOpen(false)} title="Record Advance Payment">
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:12,color:C.muted,fontWeight:600,display:"block",marginBottom:4}}>WORKER *</label>
+          <select value={advForm.worker_id} onChange={e=>setAdvForm(f=>({...f,worker_id:e.target.value}))}
+            style={{width:"100%",padding:"9px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:14,background:"#fff"}}>
+            <option value="">Select worker…</option>
+            {siteWorkers.map(w=><option key={w.id} value={w.id}>{w.worker_name} ({w.worker_code})</option>)}
+          </select>
+        </div>
+        <Inp label="Amount (₹) *" type="number" min="1" value={advForm.amount}
+          onChange={e=>setAdvForm(f=>({...f,amount:e.target.value}))} placeholder="0"/>
+        <Inp label="Payment Date *" type="date" value={advForm.payment_date}
+          onChange={e=>setAdvForm(f=>({...f,payment_date:e.target.value}))}/>
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:12,color:C.muted,fontWeight:600,display:"block",marginBottom:4}}>PAYMENT MODE</label>
+          <select value={advForm.mode_type} onChange={e=>setAdvForm(f=>({...f,mode_type:e.target.value}))}
+            style={{width:"100%",padding:"9px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:14,background:"#fff"}}>
+            {["cash","bank","upi","cheque"].map(m=><option key={m} value={m}>{m.charAt(0).toUpperCase()+m.slice(1)}</option>)}
+          </select>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:12,color:C.muted,fontWeight:600,display:"block",marginBottom:4}}>PAID FROM WALLET</label>
+          <select value={advForm.wallet_id} onChange={e=>setAdvForm(f=>({...f,wallet_id:e.target.value}))}
+            style={{width:"100%",padding:"9px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:14,background:"#fff"}}>
+            <option value="">Select wallet (optional)</option>
+            {wallets.map(w=><option key={w.wallet_id} value={w.wallet_id}>{w.person_name} — ₹{(w.current_balance||0).toLocaleString("en-IN")}</option>)}
+          </select>
+        </div>
+        <Inp label="Description / Reason" value={advForm.description}
+          onChange={e=>setAdvForm(f=>({...f,description:e.target.value}))} placeholder="e.g. Festival advance, medical emergency"/>
+        <div style={{display:"flex",gap:8,marginTop:16}}>
+          <Btn onClick={saveAdvance} disabled={saving} style={{background:C.green,color:"#fff",borderColor:C.green,flex:1}}>
+            {saving?"Saving…":"Save Advance"}
+          </Btn>
+          <Btn variant="ghost" onClick={()=>setAdvOpen(false)}>Cancel</Btn>
+        </div>
+      </SlideOver>
+    </>}
+  </div>;
+};
+
 // ─── WALLET MASTER ───────────────────────────────────────────────
 const WalletMaster = () => {
   const {user} = useAuth();
@@ -8605,7 +9060,7 @@ const NAV=[
   
 
   // ── SALARY & ADVANCE ──────────────────────────────────────────────
-  {id:"payroll",     label:"Payroll",           icon:I.payroll,    comp:()=><Soon module="Payroll" group="Salary"/>,         group:"Salary",         module:"Payroll"},
+  {id:"payroll",     label:"Payroll",           icon:I.payroll,    comp:()=><PayrollModule/>,         group:"Salary",         module:"Payroll"},
   {id:"expense",     label:"Expense & Petty Cash",icon:I.expense,  comp:()=><Soon module="Expense Manager" group="Salary"/>, group:"Salary",         module:"Expense"},
 
   // ── STORE ─────────────────────────────────────────────────────────
