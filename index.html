@@ -425,16 +425,13 @@ const Login=({onLogin})=>{
       // Load per-user overrides — these replace role defaults for specific modules
       const {data:overrides}=await sb.from("user_policy_overrides").select("*").eq("user_id",profile.user_id);
       if(overrides?.length){
-        // Merge: override replaces the role perm for that module
         const merged=perms.filter(p=>!overrides.find(o=>o.module===p.module));
         perms=[...merged,...overrides];
       }
-      // Load assigned sites from user_sites junction; fallback to assigned_site_id column
+      // Load assigned sites — fallback to assigned_site_id if user_sites empty
       const {data:us}=await sb.from("user_sites").select("site_id").eq("user_id",profile.user_id);
       let siteIds=(us||[]).map(r=>r.site_id);
-      // Fallback: if no user_sites rows, use assigned_site_id from profile
       if(siteIds.length===0&&profile.assigned_site_id) siteIds=[profile.assigned_site_id];
-      // Fetch site names for the ids we have
       let siteList=[];
       if(siteIds.length>0){
         const {data:siteRows}=await sb.from("sites").select("site_id,site_name").in("site_id",siteIds);
@@ -1560,15 +1557,6 @@ const WorkerMaster=()=>{
   const {user,perms,activeSiteId,assignedSiteIds,isUnrestricted,setActive,setPendingEditWorker}=useAuth();
   if(!hasPerm(perms,"Labour","can_view"))return <NoAccess module="Worker Master"/>;
   const canEdit=hasPerm(perms,"Labour","can_add");
-  // SIC can view all sites but edit/transfer only their assigned site workers
-  const canEditWorker=(worker)=>{
-    if(!canEdit)return false;
-    if(isUnrestricted)return true;
-    if(user.role==="SIC"){
-      return assignedSiteIds.includes(worker?.current_site_id);
-    }
-    return true;
-  };
   const canSetGTV=["SIC","Admin"].includes(user.role);
   const canSeeGTVLeft=["SIC","Admin","Owner"].includes(user.role);
   // ── Tabs: active | gtv | left
@@ -1642,7 +1630,7 @@ const WorkerMaster=()=>{
     };
     const [w,s,st,m,bl]=await Promise.all([
       // Workers: Active workers scoped to user's assigned site(s). GTV/Left always visible to permitted users.
-      fetchAll(sb.from("workers").select("*,sites(site_name,location,client_name)").order("worker_name")),
+      fetchAll(sb.from("workers").select("*,sites(site_name)").order("worker_name")),
       (async()=>{
         let q=sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name");
         if(!isUnrestricted&&assignedSiteIds.length>0) q=q.in("site_id",assignedSiteIds);
@@ -2008,7 +1996,7 @@ const WorkerMaster=()=>{
     <Toast/>
     <PH title="Workers"
       sub={`${data.filter(d=>d.status==="Active").length} active · ${data.filter(d=>d.status==="GTV").length} GTV · ${data.filter(d=>d.status==="Left").length} left`}
-      right={canEdit&&(isUnrestricted||assignedSiteIds.length>0)&&<Btn onClick={()=>setActive("labour")} style={{background:"#16a34a",borderColor:"#16a34a"}}>
+      right={canEdit&&<Btn onClick={()=>setActive("labour")} style={{background:"#16a34a",borderColor:"#16a34a"}}>
         <Ic d={I.plus} s={15} col="#fff"/>New Registration
       </Btn>}/>
 
@@ -2094,15 +2082,15 @@ const WorkerMaster=()=>{
               </td>
               <td style={{padding:"10px 14px"}}>
                 <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                  {canEditWorker(r)&&<Btn size="sm" variant="secondary" onClick={()=>{setPendingEditWorker(r);setActive("labour");}}>Edit</Btn>}
-                  {r.current_site_id&&canEditWorker(r)&&<Btn size="sm" variant="ghost" onClick={()=>{setTxWorker(r);setTxForm({transfer_type:"permanent"});setTxOpen(true);}}><Ic d={I.transfer} s={12}/></Btn>}
-                  {r.status==="Active"&&canEditWorker(r)&&<Btn size="sm" variant="ghost" onClick={()=>{setDbWorker(r);setDbForm({});setDbOpen(true);}}><Ic d={I.alert} s={12}/>Debit</Btn>}
-                  {r.status==="Active"&&canSetGTV&&canEditWorker(r)&&<Btn size="sm" variant="ghost"
+                  {canEdit&&<Btn size="sm" variant="secondary" onClick={()=>{setPendingEditWorker(r);setActive("labour");}}>Edit</Btn>}
+                  {r.current_site_id&&<Btn size="sm" variant="ghost" onClick={()=>{setTxWorker(r);setTxForm({transfer_type:"permanent"});setTxOpen(true);}}><Ic d={I.transfer} s={12}/></Btn>}
+                  {r.status==="Active"&&<Btn size="sm" variant="ghost" onClick={()=>{setDbWorker(r);setDbForm({});setDbOpen(true);}}><Ic d={I.alert} s={12}/>Debit</Btn>}
+                  {r.status==="Active"&&canSetGTV&&<Btn size="sm" variant="ghost"
                     style={{color:"#f59e0b",borderColor:"#f59e0b"}}
                     onClick={()=>openMarkGTV(r)}>GTV</Btn>}
-                  {r.status==="Left"&&canEditWorker(r)&&<Btn size="sm" style={{background:"#16a34a",color:"#fff",border:"none"}}
+                  {r.status==="Left"&&canEdit&&<Btn size="sm" style={{background:"#16a34a",color:"#fff",border:"none"}}
                     onClick={()=>{setRxWorker(r);setRxBuildings(allBuildings.filter(b=>b.site_id===r.current_site_id));setRxForm({per_day_rate:r.per_day_rate||"",current_site_id:r.current_site_id?.toString()||"",current_store_id:"",building_id:"",date_joined:new Date().toISOString().split("T")[0]});setRxOpen(true);}}>↑ Rejoin</Btn>}
-                  {r.status==="GTV"&&canSetGTV&&canEditWorker(r)&&<>
+                  {r.status==="GTV"&&canSetGTV&&<>
                     <Btn size="sm" style={{background:"#16a34a",color:"#fff",border:"none"}}
                       onClick={()=>{setGtvActWorker(r);setGtvActType("rejoin");setGtvRejoinSite("");setGtvRejoinRate(String(r.per_day_rate||""));setGtvRejoinDate(new Date().toISOString().split("T")[0]);setGtvActNote("");setGtvActOpen(true);}}>↑ Rejoin</Btn>
                     <Btn size="sm" variant="ghost" style={{color:"#dc2626",borderColor:"#dc2626"}}
@@ -3025,6 +3013,463 @@ const VendorMaster=()=>{
     </SlideOver>
   </div>;
 };
+
+
+
+// ─── PAYROLL MODULE ──────────────────────────────────────────────
+const PayrollModule=()=>{
+  const {user,perms,assignedSiteIds,isUnrestricted}=useAuth();
+  if(!hasPerm(perms,"Payroll","can_view"))return <NoAccess module="Payroll"/>;
+  const canEdit=hasPerm(perms,"Payroll","can_add");
+  const [tab,setTab]=useState("runs");
+  const [sites,setSites]=useState([]);
+  const [wallets,setWallets]=useState([]);
+  const [selSite,setSelSite]=useState("");
+  const [fromDate,setFromDate]=useState(()=>{const d=new Date();d.setDate(1);return d.toISOString().split("T")[0];});
+  const [toDate,setToDate]=useState(()=>new Date().toISOString().split("T")[0]);
+  const [entries,setEntries]=useState([]);
+  const [runs,setRuns]=useState([]);
+  const [selRun,setSelRun]=useState(null);
+  const [runEntries,setRunEntries]=useState([]);
+  const [advances,setAdvances]=useState([]);
+  const [siteWorkers,setSiteWorkers]=useState([]);
+  const [advForm,setAdvForm]=useState({worker_id:"",amount:"",payment_date:new Date().toISOString().split("T")[0],description:"",mode_type:"cash",wallet_id:""});
+  const [advOpen,setAdvOpen]=useState(false);
+  const [calcDone,setCalcDone]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [loading,setLoading]=useState(false);
+  const [toast,setToast]=useState(null);
+  const show=(msg,type="success")=>{setToast({msg,type});setTimeout(()=>setToast(null),3500);};
+  const fmtDate=d=>d?new Date(d).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}):"--";
+  const fmtMoney=n=>"₹"+(parseFloat(n)||0).toLocaleString("en-IN",{minimumFractionDigits:0,maximumFractionDigits:0});
+  const statusBadge=s=>{
+    const cfg={draft:{col:C.orange,bg:C.orangeBg},paid:{col:C.green,bg:C.greenBg},approved:{col:C.blue,bg:C.blueBg}};
+    const c=cfg[s]||cfg.draft;
+    return <span style={{background:c.bg,color:c.col,padding:"2px 8px",borderRadius:12,fontSize:11,fontWeight:600}}>{s.toUpperCase()}</span>;
+  };
+
+  useEffect(()=>{
+    (async()=>{
+      let q=sb.from("sites").select("site_id,site_name").eq("is_active",true).order("site_name");
+      if(!isUnrestricted&&assignedSiteIds.length>0) q=q.in("site_id",assignedSiteIds);
+      const {data:s}=await q; setSites(s||[]);
+      if((s||[]).length===1) setSelSite(String(s[0].site_id));
+      const {data:w}=await sb.from("cash_wallets").select("wallet_id,person_name,current_balance").eq("is_active",true).order("person_name");
+      setWallets(w||[]);
+    })();
+  },[]);
+
+  const loadRuns=async()=>{
+    if(!selSite) return;
+    const {data}=await sb.from("payroll_runs")
+      .select("run_id,from_date,to_date,run_date,status,total_amount,app_users(name)")
+      .eq("site_id",parseInt(selSite))
+      .order("from_date",{ascending:false});
+    setRuns(data||[]);
+  };
+  useEffect(()=>{loadRuns();setSiteWorkers([]);setCalcDone(false);setEntries([]);setSelRun(null);
+    if(selSite){
+      sb.from("workers").select("id,worker_name,worker_code,trade,per_day_rate")
+        .eq("current_site_id",parseInt(selSite)).eq("status","Active").order("worker_name")
+        .then(({data})=>setSiteWorkers(data||[]));
+    }
+  },[selSite]);
+
+  const loadAdvances=async()=>{
+    if(!selSite) return;
+    const {data}=await sb.from("labour_advances")
+      .select("advance_id,payment_date,amount,mode_type,description,workers(worker_name,worker_code),cash_wallets(person_name)")
+      .eq("site_id",parseInt(selSite))
+      .order("payment_date",{ascending:false}).limit(300);
+    setAdvances(data||[]);
+  };
+  useEffect(()=>{if(tab==="advance") loadAdvances();},[tab,selSite]);
+
+  const calculate=async()=>{
+    if(!selSite){show("Select a site first","error");return;}
+    setLoading(true);setCalcDone(false);
+    const {data:wks}=await sb.from("workers")
+      .select("id,worker_name,worker_code,trade,per_day_rate")
+      .eq("current_site_id",parseInt(selSite)).eq("status","Active").order("worker_name");
+    if(!wks?.length){show("No active workers on this site","error");setLoading(false);return;}
+    const {data:sessions}=await sb.from("attendance_sessions")
+      .select("id").eq("site_id",parseInt(selSite))
+      .gte("att_date",fromDate).lte("att_date",toDate);
+    const sessIds=(sessions||[]).map(s=>s.id);
+    let attMap={};
+    if(sessIds.length>0){
+      const {data:recs}=await sb.from("attendance_records")
+        .select("worker_id,haajri,is_present").in("session_id",sessIds).eq("is_present",true);
+      (recs||[]).forEach(r=>{attMap[r.worker_id]=(attMap[r.worker_id]||0)+(parseFloat(r.haajri)||1);});
+    }
+    const {data:advs}=await sb.from("labour_advances")
+      .select("worker_id,amount").eq("site_id",parseInt(selSite))
+      .gte("payment_date",fromDate).lte("payment_date",toDate);
+    const advMap={};
+    (advs||[]).forEach(a=>{advMap[a.worker_id]=(advMap[a.worker_id]||0)+parseFloat(a.amount||0);});
+    const {data:lastRun}=await sb.from("payroll_runs")
+      .select("run_id").eq("site_id",parseInt(selSite)).eq("status","paid")
+      .order("to_date",{ascending:false}).limit(1);
+    let cfMap={};
+    if(lastRun?.length){
+      const {data:le}=await sb.from("payroll_entries").select("worker_id,carry_forward").eq("run_id",lastRun[0].run_id);
+      (le||[]).forEach(e=>{cfMap[e.worker_id]=parseFloat(e.carry_forward||0);});
+    }
+    const rows=wks.map(w=>{
+      const days=parseFloat((attMap[w.id]||0).toFixed(1));
+      const rate=parseFloat(w.per_day_rate||0);
+      const gross=parseFloat((days*rate).toFixed(2));
+      const adv=parseFloat((advMap[w.id]||0).toFixed(2));
+      const cf=parseFloat((cfMap[w.id]||0).toFixed(2));
+      const net=parseFloat(Math.max(0,gross-adv+cf).toFixed(2));
+      const carry=parseFloat(Math.max(0,adv-gross-cf).toFixed(2));
+      return {worker_id:w.id,worker_name:w.worker_name,worker_code:w.worker_code,
+        trade:w.trade,per_day_rate:rate,days_present:days,
+        gross_wages:gross,advances_deducted:adv,carry_forward_in:cf,
+        net_payable:net,carry_forward:carry};
+    });
+    setEntries(rows);setCalcDone(true);setLoading(false);
+  };
+
+  const saveRun=async()=>{
+    if(!calcDone||!entries.length){show("Calculate first","error");return;}
+    setSaving(true);
+    const total=entries.reduce((s,e)=>s+e.net_payable,0);
+    const {data:run,error:re}=await sb.from("payroll_runs").insert({
+      site_id:parseInt(selSite),from_date:fromDate,to_date:toDate,
+      run_date:new Date().toISOString().split("T")[0],
+      status:"draft",total_amount:total,
+      created_by:user.user_id,tenant_id:user.tenant_id
+    }).select().single();
+    if(re){show("Error saving run: "+re.message,"error");setSaving(false);return;}
+    const insRows=entries.map(e=>({
+      run_id:run.run_id,worker_id:e.worker_id,site_id:parseInt(selSite),
+      days_present:e.days_present,per_day_rate:e.per_day_rate,
+      gross_wages:e.gross_wages,advances_deducted:e.advances_deducted,
+      net_payable:e.net_payable,carry_forward:e.carry_forward,
+      status:"pending",tenant_id:user.tenant_id
+    }));
+    const {error:ee}=await sb.from("payroll_entries").insert(insRows);
+    if(ee){show("Error saving entries: "+ee.message,"error");setSaving(false);return;}
+    show("Payroll run saved successfully");
+    setCalcDone(false);setEntries([]);loadRuns();setSaving(false);
+  };
+
+  const markPaid=async(run,ev)=>{
+    if(ev) ev.stopPropagation();
+    if(!window.confirm("Mark this payroll run as PAID? This cannot be undone.")) return;
+    await sb.from("payroll_runs").update({status:"paid"}).eq("run_id",run.run_id);
+    await sb.from("payroll_entries").update({status:"paid",payment_date:new Date().toISOString().split("T")[0]}).eq("run_id",run.run_id);
+    show("Marked as paid");loadRuns();
+    if(selRun?.run_id===run.run_id) setSelRun(r=>({...r,status:"paid"}));
+  };
+
+  const openRun=async(run)=>{
+    setSelRun(run);
+    const {data}=await sb.from("payroll_entries")
+      .select("*,workers(worker_name,worker_code,trade)")
+      .eq("run_id",run.run_id).order("workers(worker_name)");
+    setRunEntries(data||[]);
+  };
+
+  const saveAdvance=async()=>{
+    if(!advForm.worker_id||!advForm.amount||parseFloat(advForm.amount)<=0){show("Select worker and enter amount","error");return;}
+    setSaving(true);
+    const {error}=await sb.from("labour_advances").insert({
+      worker_id:parseInt(advForm.worker_id),site_id:parseInt(selSite),
+      wallet_id:advForm.wallet_id?parseInt(advForm.wallet_id):null,
+      amount:parseFloat(advForm.amount),payment_date:advForm.payment_date,
+      description:advForm.description,mode_type:advForm.mode_type,
+      created_by:user.user_id,tenant_id:user.tenant_id
+    });
+    if(error){show("Error: "+error.message,"error");}
+    else{
+      show("Advance recorded");
+      setAdvForm({worker_id:"",amount:"",payment_date:new Date().toISOString().split("T")[0],description:"",mode_type:"cash",wallet_id:""});
+      setAdvOpen(false);loadAdvances();
+    }
+    setSaving(false);
+  };
+
+  const thStyle={padding:"8px 12px",color:C.muted,fontWeight:600,fontSize:12,whiteSpace:"nowrap"};
+  const tdStyle={padding:"9px 12px",fontSize:13};
+
+  return <div style={{padding:"16px 20px",maxWidth:1100,margin:"0 auto"}}>
+    {toast&&<div style={{position:"fixed",top:20,right:20,zIndex:9999,background:toast.type==="error"?C.red:C.green,
+      color:"#fff",padding:"10px 18px",borderRadius:10,fontWeight:600,fontSize:14,boxShadow:"0 4px 16px rgba(0,0,0,0.2)"}}>{toast.msg}</div>}
+
+    <div style={{marginBottom:20}}>
+      <h2 style={{margin:0,fontSize:20,fontWeight:700,color:C.text}}>Payroll</h2>
+      <p style={{margin:"2px 0 0",fontSize:13,color:C.muted}}>Wage calculation, advance payments, payroll runs</p>
+    </div>
+
+    {/* Site + date filter bar */}
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 16px",marginBottom:16,display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
+      <div style={{flex:"1 1 160px"}}>
+        <label style={{fontSize:11,color:C.muted,fontWeight:600,display:"block",marginBottom:4}}>SITE</label>
+        <select value={selSite} onChange={e=>setSelSite(e.target.value)}
+          style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:14,background:"#fff",color:C.text}}>
+          <option value="">Select site…</option>
+          {sites.map(s=><option key={s.site_id} value={s.site_id}>{s.site_name}</option>)}
+        </select>
+      </div>
+      {tab==="runs"&&<>
+        <div style={{flex:"1 1 130px"}}>
+          <label style={{fontSize:11,color:C.muted,fontWeight:600,display:"block",marginBottom:4}}>FROM</label>
+          <input type="date" value={fromDate} onChange={e=>{setFromDate(e.target.value);setCalcDone(false);}}
+            style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:14}}/>
+        </div>
+        <div style={{flex:"1 1 130px"}}>
+          <label style={{fontSize:11,color:C.muted,fontWeight:600,display:"block",marginBottom:4}}>TO</label>
+          <input type="date" value={toDate} onChange={e=>{setToDate(e.target.value);setCalcDone(false);}}
+            style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:14}}/>
+        </div>
+        {canEdit&&<div style={{display:"flex",gap:8}}>
+          <Btn onClick={calculate} disabled={loading||!selSite} style={{background:C.accent,color:"#fff",borderColor:C.accent,whiteSpace:"nowrap"}}>
+            {loading?"Calculating…":"⚙ Calculate"}
+          </Btn>
+          {calcDone&&<Btn onClick={saveRun} disabled={saving} style={{background:C.green,color:"#fff",borderColor:C.green,whiteSpace:"nowrap"}}>
+            {saving?"Saving…":"💾 Save Run"}
+          </Btn>}
+        </div>}
+      </>}
+      {tab==="advance"&&canEdit&&selSite&&
+        <Btn onClick={()=>setAdvOpen(true)} style={{background:C.accent,color:"#fff",borderColor:C.accent}}>
+          <Ic d={I.plus} s={14} col="#fff"/> Record Advance
+        </Btn>}
+    </div>
+
+    {/* Tabs */}
+    <div style={{display:"flex",gap:2,marginBottom:16,borderBottom:`2px solid ${C.border}`}}>
+      {[["runs","📋 Payroll Runs"],["advance","💵 Advances"]].map(([id,label])=>(
+        <button key={id} onClick={()=>setTab(id)}
+          style={{padding:"8px 20px",border:"none",background:"none",cursor:"pointer",fontSize:14,
+            fontWeight:tab===id?700:400,color:tab===id?C.accent:C.muted,
+            borderBottom:tab===id?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-2}}>
+          {label}
+        </button>
+      ))}
+    </div>
+
+    {/* ── RUNS TAB ── */}
+    {tab==="runs"&&<>
+      {/* Calculated preview table */}
+      {calcDone&&entries.length>0&&<div style={{background:C.card,border:`1px solid ${C.accent}`,borderRadius:10,marginBottom:16,overflow:"hidden"}}>
+        <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,background:C.accentBg,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontWeight:700,fontSize:14,color:C.accent}}>{entries.length} Workers · {fromDate} → {toDate}</span>
+          <span style={{fontWeight:700,fontSize:15,color:C.green}}>Total Net: {fmtMoney(entries.reduce((s,e)=>s+e.net_payable,0))}</span>
+        </div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{background:C.bg}}>
+                {["#","Worker","Code","Days","Rate/Day","Gross","Advances","Net Payable","Carry Fwd"].map((h,i)=>(
+                  <th key={h} style={{...thStyle,textAlign:i>3?"right":"left"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e,i)=>(
+                <tr key={e.worker_id} style={{borderTop:`1px solid ${C.border}`,background:i%2===0?"#fff":C.bg}}>
+                  <td style={{...tdStyle,color:C.faint}}>{i+1}</td>
+                  <td style={{...tdStyle,fontWeight:600}}>{e.worker_name}</td>
+                  <td style={{...tdStyle,color:C.muted,fontSize:12}}>{e.worker_code}</td>
+                  <td style={{...tdStyle,textAlign:"right"}}>{e.days_present}</td>
+                  <td style={{...tdStyle,textAlign:"right"}}>{fmtMoney(e.per_day_rate)}</td>
+                  <td style={{...tdStyle,textAlign:"right"}}>{fmtMoney(e.gross_wages)}</td>
+                  <td style={{...tdStyle,textAlign:"right",color:e.advances_deducted>0?C.red:C.faint}}>{e.advances_deducted>0?fmtMoney(e.advances_deducted):"—"}</td>
+                  <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.green}}>{fmtMoney(e.net_payable)}</td>
+                  <td style={{...tdStyle,textAlign:"right",color:C.orange}}>{e.carry_forward>0?fmtMoney(e.carry_forward):"—"}</td>
+                </tr>
+              ))}
+              <tr style={{borderTop:`2px solid ${C.border}`,background:C.accentBg}}>
+                <td colSpan={4} style={{...tdStyle,fontWeight:700}}>TOTAL</td>
+                <td style={{...tdStyle,textAlign:"right",fontWeight:700}}></td>
+                <td style={{...tdStyle,textAlign:"right",fontWeight:700}}>{fmtMoney(entries.reduce((s,e)=>s+e.gross_wages,0))}</td>
+                <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.red}}>{fmtMoney(entries.reduce((s,e)=>s+e.advances_deducted,0))}</td>
+                <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.green}}>{fmtMoney(entries.reduce((s,e)=>s+e.net_payable,0))}</td>
+                <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.orange}}>{fmtMoney(entries.reduce((s,e)=>s+e.carry_forward,0))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>}
+
+      {/* Past runs */}
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+        <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontWeight:700,fontSize:14}}>Past Payroll Runs</span>
+          {selSite&&<span style={{fontSize:12,color:C.muted}}>{runs.length} runs</span>}
+        </div>
+        {!selSite&&<p style={{padding:24,color:C.muted,textAlign:"center",margin:0}}>Select a site to view payroll runs.</p>}
+        {selSite&&runs.length===0&&<p style={{padding:24,color:C.muted,textAlign:"center",margin:0}}>No payroll runs yet for this site.</p>}
+        {runs.length>0&&<div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{background:C.bg}}>
+                {["Period","Run Date","Workers","Total","Status","By",""].map(h=>(
+                  <th key={h} style={{...thStyle,textAlign:h==="Total"?"right":"left"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {runs.map(r=>(
+                <tr key={r.run_id} style={{borderTop:`1px solid ${C.border}`,cursor:"pointer"}}
+                  onMouseEnter={e=>e.currentTarget.style.background=C.bg}
+                  onMouseLeave={e=>e.currentTarget.style.background=""}
+                  onClick={()=>openRun(r)}>
+                  <td style={{...tdStyle,fontWeight:600}}>{fmtDate(r.from_date)} – {fmtDate(r.to_date)}</td>
+                  <td style={{...tdStyle,color:C.muted}}>{fmtDate(r.run_date)}</td>
+                  <td style={{...tdStyle,color:C.muted}}>—</td>
+                  <td style={{...tdStyle,textAlign:"right",fontWeight:700}}>{fmtMoney(r.total_amount)}</td>
+                  <td style={{...tdStyle}}>{statusBadge(r.status)}</td>
+                  <td style={{...tdStyle,color:C.muted,fontSize:12}}>{r.app_users?.name||"—"}</td>
+                  <td style={{...tdStyle}}>
+                    {canEdit&&r.status==="draft"&&
+                      <Btn size="sm" style={{background:C.green,color:"#fff",borderColor:C.green}}
+                        onClick={ev=>markPaid(r,ev)}>Mark Paid</Btn>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>}
+      </div>
+
+      {/* Run detail panel */}
+      {selRun&&<div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"stretch"}}>
+        <div style={{flex:1,background:"rgba(0,0,0,0.45)"}} onClick={()=>setSelRun(null)}/>
+        <div style={{width:Math.min(820,window.innerWidth),background:C.card,overflowY:"auto",boxShadow:"-6px 0 32px rgba(0,0,0,0.18)"}}>
+          <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:C.card,zIndex:1}}>
+            <div>
+              <p style={{margin:0,fontWeight:700,fontSize:15}}>Payroll Run — {fmtDate(selRun.from_date)} → {fmtDate(selRun.to_date)}</p>
+              <div style={{display:"flex",gap:8,marginTop:4,alignItems:"center"}}>
+                {statusBadge(selRun.status)}
+                <span style={{fontSize:12,color:C.muted}}>Total: {fmtMoney(selRun.total_amount)}</span>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              {canEdit&&selRun.status==="draft"&&
+                <Btn size="sm" style={{background:C.green,color:"#fff",borderColor:C.green}} onClick={ev=>markPaid(selRun,ev)}>Mark Paid</Btn>}
+              <Btn size="sm" variant="ghost" onClick={()=>setSelRun(null)}>✕ Close</Btn>
+            </div>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead>
+                <tr style={{background:C.bg}}>
+                  {["#","Worker","Trade","Days","Rate","Gross","Advances","Net","Carry Fwd","Status"].map((h,i)=>(
+                    <th key={h} style={{...thStyle,textAlign:i>3?"right":h==="Status"?"center":"left"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {runEntries.map((e,i)=>(
+                  <tr key={e.entry_id} style={{borderTop:`1px solid ${C.border}`,background:i%2===0?"#fff":C.bg}}>
+                    <td style={{...tdStyle,color:C.faint}}>{i+1}</td>
+                    <td style={{...tdStyle,fontWeight:600}}>{e.workers?.worker_name||"—"}</td>
+                    <td style={{...tdStyle,color:C.muted,fontSize:12}}>{e.workers?.trade||"—"}</td>
+                    <td style={{...tdStyle,textAlign:"right"}}>{e.days_present}</td>
+                    <td style={{...tdStyle,textAlign:"right"}}>{fmtMoney(e.per_day_rate)}</td>
+                    <td style={{...tdStyle,textAlign:"right"}}>{fmtMoney(e.gross_wages)}</td>
+                    <td style={{...tdStyle,textAlign:"right",color:e.advances_deducted>0?C.red:C.faint}}>{e.advances_deducted>0?fmtMoney(e.advances_deducted):"—"}</td>
+                    <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.green}}>{fmtMoney(e.net_payable)}</td>
+                    <td style={{...tdStyle,textAlign:"right",color:C.orange}}>{e.carry_forward>0?fmtMoney(e.carry_forward):"—"}</td>
+                    <td style={{...tdStyle,textAlign:"center"}}>{statusBadge(e.status)}</td>
+                  </tr>
+                ))}
+                <tr style={{borderTop:`2px solid ${C.border}`,background:C.accentBg}}>
+                  <td colSpan={4} style={{...tdStyle,fontWeight:700}}>TOTAL</td>
+                  <td style={{...tdStyle}}></td>
+                  <td style={{...tdStyle,textAlign:"right",fontWeight:700}}>{fmtMoney(runEntries.reduce((s,e)=>s+parseFloat(e.gross_wages||0),0))}</td>
+                  <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.red}}>{fmtMoney(runEntries.reduce((s,e)=>s+parseFloat(e.advances_deducted||0),0))}</td>
+                  <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.green}}>{fmtMoney(runEntries.reduce((s,e)=>s+parseFloat(e.net_payable||0),0))}</td>
+                  <td colSpan={2}></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>}
+    </>}
+
+    {/* ── ADVANCE TAB ── */}
+    {tab==="advance"&&<>
+      {!selSite&&<p style={{color:C.muted,textAlign:"center",padding:40}}>Select a site above to view advances.</p>}
+      {selSite&&<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+        <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontWeight:700,fontSize:14}}>Labour Advances</span>
+          <span style={{fontSize:12,color:C.muted}}>{advances.length} records</span>
+        </div>
+        {advances.length===0?<p style={{padding:24,color:C.muted,textAlign:"center",margin:0}}>No advances recorded for this site.</p>:
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{background:C.bg}}>
+                {["Date","Worker","Code","Amount","Mode","Paid From Wallet","Description"].map(h=>(
+                  <th key={h} style={{...thStyle,textAlign:h==="Amount"?"right":"left"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {advances.map((a,i)=>(
+                <tr key={a.advance_id} style={{borderTop:`1px solid ${C.border}`,background:i%2===0?"#fff":C.bg}}>
+                  <td style={{...tdStyle,color:C.muted}}>{fmtDate(a.payment_date)}</td>
+                  <td style={{...tdStyle,fontWeight:600}}>{a.workers?.worker_name||"—"}</td>
+                  <td style={{...tdStyle,color:C.muted,fontSize:12}}>{a.workers?.worker_code||"—"}</td>
+                  <td style={{...tdStyle,textAlign:"right",fontWeight:700,color:C.red}}>{fmtMoney(a.amount)}</td>
+                  <td style={{...tdStyle,color:C.muted,textTransform:"capitalize"}}>{a.mode_type||"cash"}</td>
+                  <td style={{...tdStyle,color:C.muted}}>{a.cash_wallets?.person_name||"—"}</td>
+                  <td style={{...tdStyle,color:C.muted,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.description||"—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>}
+      </div>}
+
+      {/* Advance form slideover */}
+      <SlideOver open={advOpen} onClose={()=>setAdvOpen(false)} title="Record Advance Payment">
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:12,color:C.muted,fontWeight:600,display:"block",marginBottom:4}}>WORKER *</label>
+          <select value={advForm.worker_id} onChange={e=>setAdvForm(f=>({...f,worker_id:e.target.value}))}
+            style={{width:"100%",padding:"9px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:14,background:"#fff"}}>
+            <option value="">Select worker…</option>
+            {siteWorkers.map(w=><option key={w.id} value={w.id}>{w.worker_name} ({w.worker_code})</option>)}
+          </select>
+        </div>
+        <Inp label="Amount (₹) *" type="number" min="1" value={advForm.amount}
+          onChange={e=>setAdvForm(f=>({...f,amount:e.target.value}))} placeholder="0"/>
+        <Inp label="Payment Date *" type="date" value={advForm.payment_date}
+          onChange={e=>setAdvForm(f=>({...f,payment_date:e.target.value}))}/>
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:12,color:C.muted,fontWeight:600,display:"block",marginBottom:4}}>PAYMENT MODE</label>
+          <select value={advForm.mode_type} onChange={e=>setAdvForm(f=>({...f,mode_type:e.target.value}))}
+            style={{width:"100%",padding:"9px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:14,background:"#fff"}}>
+            {["cash","bank","upi","cheque"].map(m=><option key={m} value={m}>{m.charAt(0).toUpperCase()+m.slice(1)}</option>)}
+          </select>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:12,color:C.muted,fontWeight:600,display:"block",marginBottom:4}}>PAID FROM WALLET</label>
+          <select value={advForm.wallet_id} onChange={e=>setAdvForm(f=>({...f,wallet_id:e.target.value}))}
+            style={{width:"100%",padding:"9px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:14,background:"#fff"}}>
+            <option value="">Select wallet (optional)</option>
+            {wallets.map(w=><option key={w.wallet_id} value={w.wallet_id}>{w.person_name} — ₹{(w.current_balance||0).toLocaleString("en-IN")}</option>)}
+          </select>
+        </div>
+        <Inp label="Description / Reason" value={advForm.description}
+          onChange={e=>setAdvForm(f=>({...f,description:e.target.value}))} placeholder="e.g. Festival advance, medical emergency"/>
+        <div style={{display:"flex",gap:8,marginTop:16}}>
+          <Btn onClick={saveAdvance} disabled={saving} style={{background:C.green,color:"#fff",borderColor:C.green,flex:1}}>
+            {saving?"Saving…":"Save Advance"}
+          </Btn>
+          <Btn variant="ghost" onClick={()=>setAdvOpen(false)}>Cancel</Btn>
+        </div>
+      </SlideOver>
+    </>}
+  </div>;
+};
+
 
 // ─── WALLET MASTER ───────────────────────────────────────────────
 const WalletMaster = () => {
@@ -4345,233 +4790,63 @@ const WorkerPrintForm=({worker:printWorker,onClose})=>{
 
 
 // ── Worker ID Card ────────────────────────────────────────────────
-const WorkerIdCard=({worker:w,onClose})=>{
-  if(!w)return null;
-  const RED="#9B1C1C";const DARKRED="#7F1D1D";const LIGHTRED="#FEE2E2";
-  const siteName=w.sites?.site_name||"—";
-  const siteLocation=w.sites?.location||"";
-  const siteClient=w.sites?.client_name||"";
-
-  const printCard=()=>{
-    const front=document.getElementById("id-card-front");
-    const back=document.getElementById("id-card-back");
-    const pw=window.open("","_blank","width=800,height=400");
-    // Both cards side-by-side on ONE A4 page landscape
-    // Front left, Back right — cut the strip, fold/paste back-to-back
-    pw.document.write(`<!DOCTYPE html><html><head><title>ID Card — ${w.worker_code}</title>
-    <style>
-      @page{size:A4 landscape;margin:10mm}
-      *{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-      body{font-family:Arial,sans-serif;background:#fff;display:flex;flex-direction:column;align-items:flex-start;gap:6mm}
-      .row{display:flex;flex-direction:row;align-items:flex-start;gap:6mm}
-      .card{width:90mm;height:55mm;overflow:hidden;flex-shrink:0}
-      .label{font-size:7pt;font-family:Arial,sans-serif;color:#94a3b8;font-weight:700;
-        letter-spacing:.08em;text-transform:uppercase;margin-bottom:1.5mm;display:block}
-      .cut-line{width:192mm;border-top:0.3mm dashed #CBD5E1;margin:3mm 0;position:relative}
-      .cut-label{position:absolute;top:-4mm;left:50%;transform:translateX(-50%);
-        background:#fff;padding:0 2mm;font-size:6pt;color:#CBD5E1;font-family:Arial,sans-serif;
-        white-space:nowrap}
-      .instructions{font-size:7pt;color:#64748B;font-family:Arial,sans-serif;line-height:1.6;margin-top:2mm}
-    </style></head><body>
-    <div class="row">
-      <div>
-        <span class="label">① Front side</span>
-        <div class="card">${front.innerHTML}</div>
+const WorkerIdCard=({worker:idCardWorker,onClose})=>{
+  if(!idCardWorker)return null;
+  return <Modal open={!!idCardWorker} onClose={onClose} title="Identity Card" width={400}>
+    <div id="id-card-print" style={{border:"2.5px solid #1D4ED8",borderRadius:14,overflow:"hidden",
+      background:"#fff",maxWidth:340,margin:"0 auto"}}>
+      <div style={{background:"linear-gradient(135deg,#0F172A,#1D4ED8)",
+        padding:"12px 16px",textAlign:"center"}}>
+        <p style={{margin:0,color:"#fff",fontWeight:900,fontSize:15,letterSpacing:".05em"}}>UMIYA ASSOCIATES</p>
+        <p style={{margin:"2px 0 0",color:"rgba(255,255,255,.7)",fontSize:10}}>CONSTRUCTION ERP — IDENTITY CARD</p>
       </div>
-      <div style="display:flex;align-items:center;padding-top:5mm">
-        <div style="border-left:0.3mm dashed #CBD5E1;height:55mm;margin:0 4mm;position:relative">
-          <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(90deg);
-            white-space:nowrap;font-size:6pt;color:#CBD5E1;font-family:Arial,sans-serif;
-            background:#fff;padding:0 1mm">✂ cut</span>
+      <div style={{padding:16,display:"flex",gap:14,alignItems:"flex-start"}}>
+        {idCardWorker.worker_photo_url
+          ?<img src={idCardWorker.worker_photo_url} style={{width:72,height:88,objectFit:"cover",
+            borderRadius:6,border:"2px solid #1D4ED8",flexShrink:0}}/>
+          :<div style={{width:72,height:88,borderRadius:6,background:"#EFF6FF",
+            display:"flex",alignItems:"center",justifyContent:"center",
+            border:"2px dashed #93C5FD",flexShrink:0}}>
+            <span style={{fontSize:26,fontWeight:700,color:"#1D4ED8"}}>
+              {idCardWorker.worker_name[0].toUpperCase()}
+            </span>
+          </div>}
+        <div style={{flex:1}}>
+          <p style={{margin:0,fontWeight:800,fontSize:14,color:"#0F172A",lineHeight:1.2}}>{idCardWorker.worker_name}</p>
+          {idCardWorker.father_name&&<p style={{margin:"3px 0 0",fontSize:10,color:"#64748B"}}>S/o {idCardWorker.father_name}</p>}
+          <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:3}}>
+            {[["Code",idCardWorker.worker_code,"#1D4ED8"],["Trade",idCardWorker.trade,null],
+              ["Site",idCardWorker.sites?.site_name||"—",null],["Joined",idCardWorker.date_joined||"—",null],
+              idCardWorker.mobile&&["Mobile",idCardWorker.mobile,null]].filter(Boolean).map(([k,v,col])=>(
+              <div key={k} style={{display:"flex",gap:4}}>
+                <span style={{fontSize:10,fontWeight:700,color:"#64748B",width:50}}>{k}</span>
+                <span style={{fontSize:10,fontWeight:col?700:600,color:col||"#0F172A"}}>{v}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
-      <div>
-        <span class="label">② Back side</span>
-        <div class="card">${back.innerHTML}</div>
+      {idCardWorker.aadhaar_number&&<div style={{background:"#F8FAFC",padding:"6px 16px",
+        borderTop:"1px dashed #CBD5E1",fontSize:10,color:"#475569"}}>
+        Aadhaar: <b>{idCardWorker.aadhaar_number}</b>
+      </div>}
+      <div style={{display:"flex",justifyContent:"space-between",padding:"10px 16px",borderTop:"1px solid #E2E8F0"}}>
+        <div style={{textAlign:"center"}}>
+          <div style={{width:80,height:24,borderBottom:"1px solid #94A3B8",marginBottom:3}}/>
+          <p style={{margin:0,fontSize:9,color:"#64748B",fontWeight:600}}>CLIENT STAMP</p>
+        </div>
+        <div style={{textAlign:"center"}}>
+          <div style={{width:80,height:24,borderBottom:"1px solid #94A3B8",marginBottom:3}}/>
+          <p style={{margin:0,fontSize:9,color:"#64748B",fontWeight:600}}>SITE INCHARGE</p>
+        </div>
+      </div>
+      <div style={{background:"#0F172A",padding:"6px 16px",textAlign:"center"}}>
+        <p style={{margin:0,fontSize:9,color:"rgba(255,255,255,.5)"}}>Valid only for the above mentioned project site</p>
       </div>
     </div>
-    <p class="instructions">① Cut along the vertical dashed line &nbsp;|&nbsp; ② Place front face-up &nbsp;|&nbsp; ③ Flip back side over and align &nbsp;|&nbsp; ④ Glue and insert into card sleeve</p>
-    </body></html>`);
-    pw.document.close();
-    pw.onload=()=>{pw.focus();pw.print();};
-  };
-
-  const cardStyle={
-    width:"90mm",height:"55mm",border:`0.5mm solid ${RED}`,borderRadius:"2mm",
-    overflow:"hidden",background:"#fff",fontFamily:"Arial,sans-serif",
-    boxShadow:"0 4px 24px rgba(0,0,0,.22)",flexShrink:0,
-    display:"flex",flexDirection:"column",
-  };
-
-  return <Modal open={!!w} onClose={onClose} title="ID Card — Print Preview" width={520}>
-    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
-      <p style={{fontSize:11,color:"#64748B",margin:0,textAlign:"center"}}>
-        Physical size: <b>90 mm × 55 mm</b> — Print both sides, cut, paste back-to-back into card sleeve
-      </p>
-
-      {/* ═══════ FRONT SIDE ═══════ */}
-      <div style={{display:"flex",alignItems:"center",gap:6}}>
-        <span style={{fontSize:9,fontWeight:700,color:RED,writingMode:"vertical-rl",
-          transform:"rotate(180deg)",letterSpacing:".12em",opacity:.7}}>FRONT</span>
-        <div id="id-card-front" style={cardStyle}>
-          {/* Header */}
-          <div style={{background:RED,height:"9mm",flexShrink:0,display:"flex",
-            alignItems:"center",justifyContent:"space-between",padding:"0 3mm"}}>
-            <span style={{color:"#fff",fontWeight:900,fontSize:"4.5mm",letterSpacing:".07em"}}>IDENTITY CARD</span>
-            <span style={{color:"rgba(255,255,255,.75)",fontSize:"2mm",fontWeight:600,letterSpacing:".04em"}}>UMIYA ASSOCIATES</span>
-          </div>
-
-          {/* Body */}
-          <div style={{flex:1,display:"flex",position:"relative",overflow:"hidden",minHeight:0}}>
-            {/* Subtle arc */}
-            <svg style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",pointerEvents:"none"}}
-              preserveAspectRatio="none" viewBox="0 0 340 174">
-              <path d="M0,0 L115,0 Q68,87 115,174 L0,174 Z" fill={RED} opacity="0.09"/>
-            </svg>
-
-            {/* Photo col */}
-            <div style={{width:"24mm",flexShrink:0,padding:"2mm 1mm 2mm 3mm",zIndex:1,
-              display:"flex",flexDirection:"column",alignItems:"center",gap:"1mm"}}>
-              <div style={{width:"20mm",height:"24mm",border:`0.4mm solid ${RED}`,
-                borderRadius:"1mm",overflow:"hidden",background:LIGHTRED,
-                display:"flex",alignItems:"center",justifyContent:"center"}}>
-                {w.worker_photo_url
-                  ?<img src={w.worker_photo_url} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                  :<svg viewBox="0 0 60 80" width="13mm" height="17mm" fill={RED} opacity="0.45">
-                    <circle cx="30" cy="22" r="13"/>
-                    <path d="M5,80 Q5,50 30,50 Q55,50 55,80 Z"/>
-                  </svg>}
-              </div>
-              {/* Code badge under photo */}
-              <div style={{background:RED,borderRadius:"0.7mm",padding:"0.5mm 1.5mm",
-                textAlign:"center",width:"100%"}}>
-                <span style={{color:"#fff",fontSize:"2.1mm",fontWeight:800,letterSpacing:".03em"}}>{w.worker_code}</span>
-              </div>
-            </div>
-
-            {/* Detail col */}
-            <div style={{flex:1,padding:"2mm 2.5mm 1mm 1mm",zIndex:1,display:"flex",
-              flexDirection:"column",justifyContent:"center",gap:"0.4mm"}}>
-              <div style={{fontSize:"3mm",fontWeight:900,color:"#0F172A",lineHeight:1.15,marginBottom:"0.3mm"}}>
-                {w.worker_name}
-              </div>
-              {w.father_name&&<div style={{fontSize:"2.2mm",color:"#64748B",marginBottom:"1mm"}}>
-                S/o {w.father_name}
-              </div>}
-              {[
-                ["Designation", w.trade],
-                ["Site",        siteName],
-                siteLocation && ["Location", siteLocation],
-                siteClient   && ["Client",   siteClient],
-                ["Joined",      w.date_joined||"—"],
-              ].filter(Boolean).map(([k,v])=>(
-                <div key={k} style={{display:"flex",gap:"1mm",alignItems:"baseline"}}>
-                  <span style={{fontSize:"1.9mm",fontWeight:700,color:RED,width:"16mm",flexShrink:0}}>{k}</span>
-                  <span style={{fontSize:"2.3mm",fontWeight:600,color:"#0F172A",lineHeight:1,flex:1}}>{v}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Footer — signatures */}
-          <div style={{background:RED,flexShrink:0,height:"7mm",
-            display:"flex",alignItems:"center",justifyContent:"space-between",
-            padding:"0 3mm",borderTop:`0.3mm solid ${DARKRED}`}}>
-            <div style={{textAlign:"center"}}>
-              <div style={{width:"17mm",borderBottom:"0.3mm solid rgba(255,255,255,.55)",marginBottom:"1mm"}}/>
-              <span style={{fontSize:"1.7mm",color:"rgba(255,255,255,.9)",fontWeight:700,letterSpacing:".03em"}}>CLIENT STAMP</span>
-            </div>
-            <span style={{fontSize:"1.5mm",color:"rgba(255,255,255,.45)",textAlign:"center",letterSpacing:".04em"}}>
-              Valid for above site only
-            </span>
-            <div style={{textAlign:"center"}}>
-              <div style={{width:"17mm",borderBottom:"0.3mm solid rgba(255,255,255,.55)",marginBottom:"1mm"}}/>
-              <span style={{fontSize:"1.7mm",color:"rgba(255,255,255,.9)",fontWeight:700,letterSpacing:".03em"}}>SITE INCHARGE</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div style={{fontSize:10,color:"#CBD5E1",letterSpacing:".05em"}}>✂ &nbsp; cut here — flip & align back ✂</div>
-
-      {/* ═══════ BACK SIDE ═══════ */}
-      <div style={{display:"flex",alignItems:"center",gap:6}}>
-        <span style={{fontSize:9,fontWeight:700,color:RED,writingMode:"vertical-rl",
-          transform:"rotate(180deg)",letterSpacing:".12em",opacity:.7}}>BACK</span>
-        <div id="id-card-back" style={cardStyle}>
-          {/* Header */}
-          <div style={{background:RED,height:"8mm",flexShrink:0,display:"flex",
-            alignItems:"center",justifyContent:"center",gap:"2.5mm"}}>
-            {/* Wave-mark logo mirroring physical card */}
-            <svg viewBox="0 0 48 20" width="9mm" height="3.7mm">
-              <polyline points="2,16 10,4 18,13 26,4 34,13 42,4 46,16"
-                stroke="white" strokeWidth="3.2" fill="none" strokeLinejoin="round" strokeLinecap="round"/>
-            </svg>
-            <span style={{color:"#fff",fontSize:"3mm",fontWeight:800,letterSpacing:".06em"}}>UMIYA ASSOCIATES</span>
-          </div>
-
-          {/* Back body — two columns */}
-          <div style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
-
-            {/* LEFT — Site address */}
-            <div style={{flex:1,padding:"1.5mm 2mm 1mm 3mm",
-              borderRight:`0.3mm dashed ${RED}`,display:"flex",flexDirection:"column",gap:"1mm"}}>
-              <div style={{fontSize:"1.8mm",fontWeight:800,color:RED,
-                textTransform:"uppercase",letterSpacing:".08em"}}>Site Address</div>
-              <div style={{fontSize:"2.2mm",color:"#0F172A",lineHeight:1.45,flex:1}}>
-                <b>{siteName}</b>
-                {siteLocation&&<><br/>{siteLocation}</>}
-                {siteClient&&<><br/><span style={{color:"#64748B",fontSize:"2mm"}}>Client: {siteClient}</span></>}
-              </div>
-              {w.aadhaar_number&&<div style={{marginTop:"auto",paddingTop:"1mm",
-                borderTop:`0.2mm dashed ${LIGHTRED}`}}>
-                <span style={{fontSize:"1.8mm",color:RED,fontWeight:700}}>Aadhaar: </span>
-                <span style={{fontSize:"1.8mm",color:"#0F172A",fontWeight:700,letterSpacing:".04em"}}>{w.aadhaar_number}</span>
-              </div>}
-            </div>
-
-            {/* RIGHT — Worker contact */}
-            <div style={{width:"42mm",flexShrink:0,padding:"1.5mm 2.5mm 1mm 2mm",
-              display:"flex",flexDirection:"column",gap:"1.2mm"}}>
-              <div style={{fontSize:"1.8mm",fontWeight:800,color:RED,
-                textTransform:"uppercase",letterSpacing:".08em"}}>Worker Contact</div>
-              {w.mobile&&<div>
-                <div style={{fontSize:"1.7mm",color:"#94A3B8",fontWeight:600}}>Mobile (Personal)</div>
-                <div style={{fontSize:"2.5mm",color:"#0F172A",fontWeight:800,letterSpacing:".02em"}}>{w.mobile}</div>
-              </div>}
-              {w.mobile_home&&<div>
-                <div style={{fontSize:"1.7mm",color:"#94A3B8",fontWeight:600}}>Mobile (Home/Village)</div>
-                <div style={{fontSize:"2.3mm",color:"#0F172A",fontWeight:700}}>{w.mobile_home}</div>
-              </div>}
-              {w.home_address&&<div>
-                <div style={{fontSize:"1.7mm",color:"#94A3B8",fontWeight:600}}>Home Address</div>
-                <div style={{fontSize:"2mm",color:"#0F172A",lineHeight:1.35}}>{w.home_address}</div>
-              </div>}
-              {(w.relative_name||w.relative_mobile)&&
-                <div style={{marginTop:"auto",paddingTop:"1mm",
-                  borderTop:`0.25mm dashed ${RED}`}}>
-                  <div style={{fontSize:"1.7mm",color:RED,fontWeight:800,marginBottom:"0.3mm"}}>Emergency Contact</div>
-                  {w.relative_name&&<div style={{fontSize:"2mm",color:"#0F172A",fontWeight:700}}>{w.relative_name}</div>}
-                  {w.relative_mobile&&<div style={{fontSize:"2.3mm",color:"#0F172A",fontWeight:800,letterSpacing:".02em"}}>{w.relative_mobile}</div>}
-                </div>}
-            </div>
-          </div>
-
-          {/* Back footer */}
-          <div style={{background:LIGHTRED,flexShrink:0,height:"5mm",
-            borderTop:`0.3mm solid ${RED}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <span style={{fontSize:"1.9mm",color:DARKRED,fontWeight:700,letterSpacing:".04em"}}>
-              If found, please return to above address
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Action buttons */}
-      <div style={{display:"flex",gap:8,marginTop:4}}>
-        <Btn style={{background:RED,borderColor:DARKRED}} onClick={printCard}>🖨 Print ID Card</Btn>
-        <Btn variant="ghost" onClick={onClose}>Close</Btn>
-      </div>
+    <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"center"}}>
+      <Btn style={{background:"#6366f1",borderColor:"#6366f1"}} onClick={()=>window.print()}>🖨 Print ID Card</Btn>
+      <Btn variant="ghost" onClick={onClose}>Close</Btn>
     </div>
   </Modal>;
 };
@@ -4622,9 +4897,9 @@ const LabourEntry=()=>{
       return all;
     };
     const [w,s,st,bl]=await Promise.all([
-      fetchAll(sb.from("workers").select("*,sites(site_name,location,client_name)").order("created_at",{ascending:false})),
+      fetchAll(sb.from("workers").select("*,sites(site_name)").order("created_at",{ascending:false})),
       (async()=>{
-        let q=sb.from("sites").select("site_id,site_name,job_id,site_code").eq("is_active",true).order("site_name");
+        let q=sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name");
         if(!isUnrestricted&&assignedSiteIds.length>0) q=q.in("site_id",assignedSiteIds);
         return q.then(r=>r.data||[]);
       })(),
@@ -4664,10 +4939,10 @@ const LabourEntry=()=>{
     } else if(sites.length>0){
       defaultSite=sites[0];
     }
-    // Auto-generate next code based on site's site_code prefix
+    // Auto-generate next code based on site's job_id prefix
     let workerCode="UA-00001";
-    if(defaultSite?.site_code||defaultSite?.job_id){
-      const siteCode=defaultSite.site_code||defaultSite.job_id;
+    if(defaultSite?.job_id){
+      const siteCode=defaultSite.job_id;
       const siteWorkers=workers.filter(w=>w.worker_code?.startsWith(siteCode+"-"));
       const maxNum=siteWorkers.reduce((mx,w)=>{
         const n=parseInt((w.worker_code??"").split("-").pop()||"0");
@@ -4742,7 +5017,7 @@ const LabourEntry=()=>{
     if(error){
       // If bucket not found, show a soft warning — don't block save
       if(error.message?.includes("Bucket not found")||error.message?.includes("bucket")){
-        show("⚠ Storage bucket not set up — photo will be saved when bucket is configured.","warn");
+        show("⚠ Storage bucket not set up — photo skipped. Worker details will still be saved.","error");
         return null;
       }
       show("Upload failed: "+error.message,"error");
@@ -4771,6 +5046,8 @@ const LabourEntry=()=>{
     const payload={
       worker_code:(form.worker_code||"").trim(),
       worker_name:(form.worker_name||"").trim(),
+      first_name:form.first_name||null,
+      surname:form.surname||null,
       father_name:form.father_name||null,
       mother_name:form.mother_name||null,
       trade:form.trade,
@@ -4906,6 +5183,8 @@ const LabourEntry=()=>{
     const draftPayload={
       worker_code:(form.worker_code||"").trim(),
       worker_name:(form.worker_name||"").trim()||"(Draft)",
+      first_name:form.first_name||null,
+      surname:form.surname||null,
       father_name:form.father_name||null,
       mother_name:form.mother_name||null,
       trade:form.trade||"(TBD)",
@@ -5210,10 +5489,10 @@ const LabourEntry=()=>{
             options={sites.filter(s=>s.job_id).map(s=>({v:s.job_id,l:`${s.job_id} — ${s.site_name}`}))}
             onChange={e=>{
               const jobId=e.target.value;
-              const site=sites.find(s=>String(s.job_id)===String(jobId));
+              const site=sites.find(s=>s.job_id===jobId);
               if(site){
                 // Auto-generate code for this site
-                const siteCode=site.site_code||site.job_id;
+                const siteCode=site.job_id;
                 const siteWorkers=workers.filter(w=>w.worker_code?.startsWith(siteCode+"-"));
                 const maxNum=siteWorkers.reduce((mx,w)=>{
                   const n=parseInt((w.worker_code??"").split("-").pop()||"0");
@@ -5232,8 +5511,8 @@ const LabourEntry=()=>{
             onChange={e=>{
               const siteId=e.target.value;
               const site=sites.find(s=>String(s.site_id)===String(siteId));
-              if(site&&(site.site_code||site.job_id)){
-                const siteCode=site.site_code||site.job_id;
+              if(site&&site.job_id){
+                const siteCode=site.job_id;
                 const siteWorkers=workers.filter(w=>w.worker_code?.startsWith(siteCode+"-"));
                 const maxNum=siteWorkers.reduce((mx,w)=>{
                   const n=parseInt((w.worker_code??"").split("-").pop()||"0");
@@ -8718,7 +8997,7 @@ const NAV=[
   
 
   // ── SALARY & ADVANCE ──────────────────────────────────────────────
-  {id:"payroll",     label:"Payroll",           icon:I.payroll,    comp:()=><Soon module="Payroll" group="Salary"/>,         group:"Salary",         module:"Payroll"},
+  {id:"payroll",     label:"Payroll",           icon:I.payroll,    comp:()=><PayrollModule/>,         group:"Salary",         module:"Payroll"},
   {id:"expense",     label:"Expense & Petty Cash",icon:I.expense,  comp:()=><Soon module="Expense Manager" group="Salary"/>, group:"Salary",         module:"Expense"},
 
   // ── STORE ─────────────────────────────────────────────────────────
@@ -8804,7 +9083,7 @@ function App(){
         sb.from("app_users").select("*").eq("auth_id",s.user.id).single()
           .then(async({data:profile})=>{
             if(!profile||!profile.is_active){setSession(false);return;}
-            // Load assigned sites from junction table; fallback to assigned_site_id
+            // Load assigned sites — fallback to assigned_site_id
             const {data:us}=await sb.from("user_sites").select("site_id").eq("user_id",profile.user_id);
             let siteIds=(us||[]).map(r=>r.site_id);
             if(siteIds.length===0&&profile.assigned_site_id) siteIds=[profile.assigned_site_id];
