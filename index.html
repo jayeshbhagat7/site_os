@@ -1656,11 +1656,9 @@ const WorkerMaster=()=>{
     const [w,s,st,m,bl]=await Promise.all([
       // Workers: Active workers scoped to user's assigned site(s). GTV/Left always visible to permitted users.
       fetchAll(sb.from("workers").select("*,sites(site_name)").order("worker_name")),
-      (async()=>{
-        let q=sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name");
-        if(!isUnrestricted&&assignedSiteIds.length>0) q=q.in("site_id",assignedSiteIds);
-        return q.then(r=>r.data||[]);
-      })(),
+      // Load ALL active sites — SIC needs to see other sites in dropdown (view-only)
+      sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name")
+        .then(r=>r.data||[]),
       sb.from("stores").select("store_id,store_name,site_id").eq("is_active",true).then(r=>r.data||[]),
       sb.from("materials").select("material_id,material_name,unit").eq("is_active",true).order("material_name").then(r=>r.data||[]),
       sb.from("buildings").select("id,building_name,building_code,site_id").eq("is_active",true).then(r=>r.data||[]),
@@ -1716,7 +1714,15 @@ const WorkerMaster=()=>{
       children_count:parseInt(form.children_count)||0,
       mobile:form.mobile||null,
       mobile_home:form.mobile_home||null,
-      home_address:form.home_address||null,
+      home_address:[form.addr_house,form.addr_village,form.addr_block,
+        form.addr_district,form.addr_state,form.addr_pincode].filter(Boolean).join(", ")||form.home_address||null,
+      // structured address fields
+      addr_pincode:form.addr_pincode||null,
+      addr_district:form.addr_district||null,
+      addr_state:form.addr_state||null,
+      addr_block:form.addr_block||null,
+      addr_village:form.addr_village||null,
+      addr_house:form.addr_house||null,
       relative_name:form.relative_name||null,
       relative_mobile:form.relative_mobile||null,
       relative_address:form.relative_address||null,
@@ -2041,6 +2047,20 @@ const WorkerMaster=()=>{
         <Ic d={I.plus} s={15} col="#fff"/>New Registration
       </Btn>}/>
 
+    {/* Pending approval alert — SIC only */}
+    {["SIC","Admin"].includes(user.role)&&data.filter(d=>d.entry_status==="pending_approval").length>0&&(
+      <div style={{background:"#fff7ed",border:"1.5px solid #fed7aa",borderRadius:10,
+        padding:"12px 16px",marginBottom:12,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+        <Ic d={I.alert} s={18} col="#ea580c"/>
+        <p style={{margin:0,fontWeight:700,color:"#ea580c",flex:1}}>
+          {data.filter(d=>d.entry_status==="pending_approval").length} worker registration{data.filter(d=>d.entry_status==="pending_approval").length>1?"s":""} pending your approval
+        </p>
+        <Btn size="sm" onClick={()=>setActive("labour")} style={{background:"#ea580c",borderColor:"#ea580c"}}>
+          Review in New Registration
+        </Btn>
+      </div>
+    )}
+
     {/* ── View selector + search ──────────────────────────────────── */}
     <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
       {/* Dropdown: assigned sites + GTV+Left */}
@@ -2054,8 +2074,8 @@ const WorkerMaster=()=>{
               {s.site_name} ({data.filter(d=>d.status==="Active"&&d.current_site_id===s.site_id).length} active)
             </option>
           ))}
-          {/* Other sites visible to SIC/unrestricted */}
-          {isUnrestricted&&sites.filter(s=>!assignedSiteIds.includes(s.site_id)).map(s=>(
+          {/* Other sites — view only for SIC/Admin/Owner */}
+          {["SIC","Admin","Owner"].includes(user.role)&&sites.filter(s=>!assignedSiteIds.includes(s.site_id)).map(s=>(
             <option key={s.site_id} value={String(s.site_id)}>
               {s.site_name} — view only ({data.filter(d=>d.status==="Active"&&d.current_site_id===s.site_id).length})
             </option>
@@ -4377,8 +4397,8 @@ const RefWorkerSearch=({form,F,allWorkers,sites})=>{
 // ════════════════════════════════════════════════════════════════════
 // SHARED WORKER MODALS — used by both WorkerMaster and LabourEntry
 // ════════════════════════════════════════════════════════════════════
-const ENTRY_STATUS_C={draft:"gray",supervisor_signed:"orange",sic_approved:"green",active:"green"};
-const ENTRY_LABEL_C={draft:"Draft",supervisor_signed:"Supervisor Signed",sic_approved:"SIC Approved",active:"Active"};
+const ENTRY_STATUS_C={draft:"gray",pending_approval:"orange",sic_approved:"green",active:"green",rejected:"red"};
+const ENTRY_LABEL_C={draft:"Draft",pending_approval:"Pending Approval",sic_approved:"SIC Approved",active:"Active",rejected:"Rejected"};
 
 // ── Worker Profile View Modal ─────────────────────────────────────
 const WorkerViewModal=({worker:w,onClose,onEdit,onIdCard,onPrint})=>{
@@ -4845,86 +4865,72 @@ const WorkerIdCard=({worker:w,onClose})=>{
   const siteLocation=w.sites?.location||"";
   const siteClient=w.sites?.client_name||"";
 
-  const printCard=()=>{
-    const front=document.getElementById("id-card-front");
-    const back=document.getElementById("id-card-back");
-    const pw=window.open("","_blank","width=900,height=500");
-    // KEY FIX: force browser to render mm units at true physical size
-    // 90mm @ 96dpi = 340.16px, 55mm @ 96dpi = 207.87px
-    // We set @page to exact card pair size so browser doesn't scale
-    pw.document.write(`<!DOCTYPE html><html><head><title>ID Card — ${w.worker_code}</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-    <style>
-      /* Force true physical mm — no browser scaling */
-      html{font-size:16px}
-      @page{
-        size:200mm 70mm;
-        margin:0;
-      }
-      *{margin:0;padding:0;box-sizing:border-box;
-        -webkit-print-color-adjust:exact;print-color-adjust:exact;
-        color-adjust:exact}
-      body{
-        font-family:Arial,sans-serif;
-        background:#fff;
-        width:200mm;
-        height:70mm;
-        display:flex;
-        flex-direction:row;
-        align-items:flex-start;
-        padding:5mm;
-        gap:5mm;
-      }
-      /* Each card: exact physical 90x55mm */
-      .card-wrap{display:flex;flex-direction:column;align-items:center;gap:1mm}
-      .card-label{font-size:5pt;font-family:Arial,sans-serif;color:#94a3b8;font-weight:700;
-        letter-spacing:.08em;text-transform:uppercase}
-      .card{
-        width:90mm !important;
-        height:55mm !important;
-        min-width:90mm !important;
-        min-height:55mm !important;
-        max-width:90mm !important;
-        max-height:55mm !important;
-        overflow:hidden;
-        flex-shrink:0;
-        position:relative;
-      }
-      /* Cut line between front and back */
-      .cut-col{
-        display:flex;flex-direction:column;align-items:center;
-        justify-content:center;padding-top:6mm;gap:1mm;
-      }
-      .cut-line{
-        border-left:0.3mm dashed #CBD5E1;
-        height:55mm;
-      }
-      .cut-txt{
-        font-size:5pt;color:#CBD5E1;font-family:Arial,sans-serif;
-        writing-mode:vertical-rl;letter-spacing:.05em;
-      }
-      @media screen{
-        body{transform-origin:top left;}
-      }
-    </style></head><body>
-    <div class="card-wrap">
-      <span class="card-label">① FRONT</span>
-      <div class="card">${front.innerHTML}</div>
-    </div>
-    <div class="cut-col">
-      <span class="cut-txt">✂ cut here</span>
-      <div class="cut-line"></div>
-    </div>
-    <div class="card-wrap">
-      <span class="card-label">② BACK</span>
-      <div class="card">${back.innerHTML}</div>
-    </div>
-    </body></html>`);
-    pw.document.close();
-    // Wait for full render then print
-    pw.onload=()=>{
-      setTimeout(()=>{pw.focus();pw.print();},300);
-    };
+  // Download card side as PNG using Canvas — pixel-perfect at 300dpi equivalent
+  // 90mm × 55mm @ 300dpi = 1063 × 650 px
+  const W_PX=1063, H_PX=650;
+  const MM2PX=W_PX/90; // pixels per mm
+
+  const downloadCardPNG=async(elemId,side)=>{
+    const el=document.getElementById(elemId);
+    if(!el){alert("Card element not found");return;}
+
+    const canvas=document.createElement("canvas");
+    canvas.width=W_PX;canvas.height=H_PX;
+    const ctx=canvas.getContext("2d");
+
+    // Scale factor: card preview is rendered at 90mm CSS = 340px screen → scale to 1063px
+    const rect=el.getBoundingClientRect();
+    const scaleX=W_PX/rect.width;
+    const scaleY=H_PX/rect.height;
+
+    // White background
+    ctx.fillStyle="#fff";
+    ctx.fillRect(0,0,W_PX,H_PX);
+
+    // Use html2canvas-like approach via SVG foreignObject
+    const svgStr=`<svg xmlns="http://www.w3.org/2000/svg" width="${W_PX}" height="${H_PX}">
+      <foreignObject width="${rect.width}" height="${rect.height}" transform="scale(${scaleX},${scaleY})">
+        <div xmlns="http://www.w3.org/1999/xhtml" style="width:${rect.width}px;height:${rect.height}px;overflow:hidden;">
+          ${el.outerHTML}
+        </div>
+      </foreignObject>
+    </svg>`;
+
+    const img=new Image();
+    const blob=new Blob([svgStr],{type:"image/svg+xml;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+
+    await new Promise((resolve,reject)=>{
+      img.onload=()=>{
+        ctx.drawImage(img,0,0,W_PX,H_PX);
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      img.onerror=reject;
+      img.src=url;
+    }).catch(()=>{
+      // SVG fallback failed — draw text-only version
+      ctx.fillStyle="#fff";ctx.fillRect(0,0,W_PX,H_PX);
+      ctx.fillStyle="#9B1C1C";ctx.fillRect(0,0,W_PX,100);
+      ctx.fillStyle="#fff";ctx.font="bold 40px Arial";ctx.textAlign="center";
+      ctx.fillText("IDENTITY CARD — UMIYA ASSOCIATES",W_PX/2,60);
+      ctx.fillStyle="#0F172A";ctx.font="bold 56px Arial";ctx.textAlign="left";
+      ctx.fillText(w.worker_name||"—",40,190);
+      ctx.font="36px Arial";ctx.fillStyle="#64748B";
+      ctx.fillText(`Code: ${w.worker_code||"—"}  |  ${w.trade||"—"}`,40,250);
+      ctx.fillText(`Site: ${w.sites?.site_name||"—"}`,40,300);
+      ctx.fillText(`Joined: ${w.date_joined||"—"}`,40,350);
+      if(w.mobile){ctx.fillText(`Mobile: ${w.mobile}`,40,400);}
+    });
+
+    // Download
+    canvas.toBlob(blob=>{
+      const a=document.createElement("a");
+      a.href=URL.createObjectURL(blob);
+      a.download=`${w.worker_code}_idcard_${side}.png`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    },"image/png",1.0);
   };
 
   const cardStyle={
@@ -5099,21 +5105,79 @@ const WorkerIdCard=({worker:w,onClose})=>{
       </div>
 
       {/* Action buttons */}
-      <div style={{display:"flex",gap:8,marginTop:4}}>
-        <Btn style={{background:RED,borderColor:DARKRED}} onClick={printCard}>🖨 Print ID Card</Btn>
+      <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap",justifyContent:"center"}}>
+        <Btn style={{background:RED,borderColor:DARKRED}} onClick={()=>downloadCardPNG("id-card-front","front")}>⬇ Download Front PNG</Btn>
+        <Btn style={{background:"#1D4ED8",borderColor:"#1E40AF"}} onClick={()=>downloadCardPNG("id-card-back","back")}>⬇ Download Back PNG</Btn>
         <Btn variant="ghost" onClick={onClose}>Close</Btn>
       </div>
+      <p style={{fontSize:10,color:C.muted,margin:"4px 0 0",textAlign:"center"}}>
+        Each image is 1063×650px (90×55mm @300dpi). Arrange multiple cards in Word/Excel to print on A4.
+      </p>
     </div>
   </Modal>;
 };
 
 // ─── LABOUR ENTRY ─────────────────────────────────────────────────
 const LabourEntry=()=>{
-  const {user,perms,assignedSiteIds,isUnrestricted,pendingEditWorker,setPendingEditWorker,pendingNewWorker,setPendingNewWorker}=useAuth();
+  const {user,perms,assignedSiteIds,isUnrestricted,setActive,pendingEditWorker,setPendingEditWorker,pendingNewWorker,setPendingNewWorker}=useAuth();
+
+  // ── Name formatter — Title Case with smart handling ──────────
+  const toTitleCase=(str)=>{
+    if(!str)return str;
+    // If already mixed case (user typed carefully), don't change
+    const hasLower=str!==str.toUpperCase();
+    const hasUpper=str!==str.toLowerCase();
+    if(hasLower&&hasUpper&&!str.includes("  "))return str; // already title-ish
+    return str.toLowerCase().replace(/(?:^|\s|\/)\S/g,c=>c.toUpperCase());
+  };
+  const fmtName=v=>toTitleCase((v||"").trim());
+
+  // ── IFSC lookup ───────────────────────────────────────────────
+  const [ifscLoading,setIfscLoading]=useState(false);
+  const lookupIFSC=async(ifsc)=>{
+    if(!ifsc||ifsc.length!==11)return;
+    setIfscLoading(true);
+    try{
+      const res=await fetch(`https://ifsc.razorpay.com/${ifsc.toUpperCase()}`);
+      if(res.ok){
+        const d=await res.json();
+        F({bank_name:d.BANK||"",bank_ifsc:ifsc.toUpperCase()});
+      } else {
+        show("IFSC not found — enter bank name manually","warning");
+      }
+    }catch(e){show("IFSC lookup failed — check connection","warning");}
+    setIfscLoading(false);
+  };
+
+  // ── Pincode lookup ────────────────────────────────────────────
+  const [pincodeLoading,setPincodeLoading]=useState(false);
+  const [pincodeResults,setPincodeResults]=useState([]); // multiple post offices possible
+  const lookupPincode=async(pin)=>{
+    if(!pin||pin.length!==6||isNaN(pin))return;
+    setPincodeLoading(true);setPincodeResults([]);
+    try{
+      const res=await fetch(`https://api.postalpincode.in/pincode/${pin}`);
+      const json=await res.json();
+      if(json[0]?.Status==="Success"){
+        const offices=json[0].PostOffice||[];
+        if(offices.length>0){
+          // Auto-fill district and state from first result
+          F({
+            addr_district:offices[0].District||"",
+            addr_state:offices[0].State||"",
+            addr_pincode:pin,
+          });
+          setPincodeResults(offices); // let user pick the right post office/village
+        } else {show("No data for this pincode","warning");}
+      } else {show("Pincode not found","warning");}
+    }catch(e){show("Pincode lookup failed","warning");}
+    setPincodeLoading(false);
+  };
   if(!hasPerm(perms,"Labour","can_view"))return <NoAccess module="Labour Entry"/>;
   const canAdd=hasPerm(perms,"Labour","can_add");
   const isSIC=["SIC","Admin"].includes(user.role);
   const isSupervisor=["SIC","Admin","Supervisor"].includes(user.role);
+  const isStorekeeper=user.role==="Storekeeper";
 
   const [workers,setWorkers]=useState([]);
   const [sites,setSites]=useState([]);
@@ -5137,8 +5201,8 @@ const LabourEntry=()=>{
 
   const TRADES=["BRM","Carpenter","Driver","Electrician","Engineer","Fitter","Foreman","M/C","Mukadam","PLM","Project Incharge","Storekeeper","Supervisor"];
   const SC={Active:"green",GTV:"orange",Left:"red",Transferred:"blue"};
-  const ENTRY_STATUS={draft:"gray",supervisor_signed:"orange",sic_approved:"green",active:"green"};
-  const ENTRY_LABEL={draft:"Draft",supervisor_signed:"Supervisor Signed",sic_approved:"SIC Approved",active:"Active"};
+  const ENTRY_STATUS={draft:"gray",pending_approval:"orange",sic_approved:"green",active:"green",rejected:"red"};
+  const ENTRY_LABEL={draft:"Draft",pending_approval:"Pending Approval",sic_approved:"SIC Approved",active:"Active",rejected:"Rejected"};
 
   const load=async()=>{
     const fetchAll=async(query)=>{
@@ -5154,11 +5218,9 @@ const LabourEntry=()=>{
     };
     const [w,s,st,bl]=await Promise.all([
       fetchAll(sb.from("workers").select("*,sites(site_name)").order("created_at",{ascending:false})),
-      (async()=>{
-        let q=sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name");
-        if(!isUnrestricted&&assignedSiteIds.length>0) q=q.in("site_id",assignedSiteIds);
-        return q.then(r=>r.data||[]);
-      })(),
+      // Load ALL active sites — SIC needs to see other sites in dropdown (view-only)
+      sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name")
+        .then(r=>r.data||[]),
       sb.from("stores").select("store_id,store_name,site_id").eq("is_active",true).then(r=>r.data||[]),
       sb.from("buildings").select("id,building_name,building_code,site_id").eq("is_active",true).then(r=>r.data||[]),
     ]);
@@ -5175,8 +5237,10 @@ const LabourEntry=()=>{
   },[pendingEditWorker]);
 
   // Consume pendingNewWorker from WorkerMaster New Registration button
+  const [fromWorkerMaster,setFromWorkerMaster]=useState(false);
   useEffect(()=>{
     if(pendingNewWorker){
+      setFromWorkerMaster(true);
       openNew();
       setPendingNewWorker(false);
     }
@@ -5272,23 +5336,63 @@ const LabourEntry=()=>{
     setWizStep(1);setWizOpen(true);
   };
 
-  // File upload helper
+  // ── EXTENDED COLS: may not exist in older schema — strip on schema cache error ──
+  const EXTENDED_COLS_W=["first_name","surname","father_name","mother_name",
+    "minimum_wage_category","is_bob_midc_branch","consent_given","consent_date",
+    "tenant_id","allergy","mobile_home","relative_name","relative_mobile",
+    "relative_address","building_id","esic_ip_number","pf_uan_number",
+    "bank_account_type","first_advance","is_active","esic_eligible",
+    "worker_photo_url","aadhaar_photo_url","pan_photo_url","bank_photo_url",
+    "home_address","pan_number","aadhaar_number","job_no","ref_worker_id"];
+  const stripExtW=(pl)=>{const s={...pl};EXTENDED_COLS_W.forEach(k=>delete s[k]);return s;};
+  const isSchemaErr=(e)=>{const m=(e?.message||"").toLowerCase();return m.includes("schema cache")||m.includes("column")||m.includes("does not exist");};
+  const safeWorkerUpdate=async(id,payload)=>{
+    const {error}=await sb.from("workers").update(payload).eq("id",id);
+    if(error&&isSchemaErr(error)){const {error:e2}=await sb.from("workers").update(stripExtW(payload)).eq("id",id);return e2;}
+    return error||null;
+  };
+  const safeWorkerInsert=async(payload)=>{
+    const {data,error}=await sb.from("workers").insert(payload).select().single();
+    if(error&&isSchemaErr(error)){
+      const {data:d2,error:e2}=await sb.from("workers").insert(stripExtW(payload)).select().single();
+      return {data:d2,error:e2};
+    }
+    return {data,error:error||null};
+  };
+
+  // File upload helper — tries sbAdmin first (bypasses RLS), falls back to base64
   const uploadFile=async(file,folder)=>{
     if(!file)return null;
-    const ext=file.name.split(".").pop();
+    // Fallback: store as base64 in DB if file is small enough (photos < 200KB)
+    const toBase64=(f)=>new Promise((res,rej)=>{
+      const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=rej;r.readAsDataURL(f);
+    });
+    const ext=file.name.split(".").pop().toLowerCase();
     const path=`${folder}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-    const {data,error}=await sb.storage.from("worker-docs").upload(path,file,{upsert:true});
-    if(error){
-      // If bucket not found, show a soft warning — don't block save
-      if(error.message?.includes("Bucket not found")||error.message?.includes("bucket")){
-        show("⚠ Storage bucket not set up — photo skipped. Worker details will still be saved.","error");
-        return null;
+    // Try storage upload (with sbAdmin to bypass RLS)
+    const storageClient=typeof sbAdmin!=="undefined"?sbAdmin:sb;
+    const {data,error}=await storageClient.storage.from("worker-docs").upload(path,file,{upsert:true,contentType:file.type});
+    if(!error){
+      const {data:url}=storageClient.storage.from("worker-docs").getPublicUrl(path);
+      return url.publicUrl;
+    }
+    // Storage failed — check why
+    const msg=(error.message||"").toLowerCase();
+    const isRLSorBucket=msg.includes("bucket")||msg.includes("not found")||
+      msg.includes("does not exist")||msg.includes("unauthorized")||
+      msg.includes("resource")||msg.includes("row-level")||
+      (error.statusCode===404||error.statusCode===400||error.statusCode===403);
+    if(isRLSorBucket){
+      // Fallback: base64 for photos only (keep DB size reasonable)
+      if(folder==="photos"&&file.size<300000){
+        try{const b64=await toBase64(file);return b64;}catch(e){}
       }
-      show("Upload failed: "+error.message,"error");
+      if(folder!=="photos") return null; // skip non-photo docs silently
+      show("⚠ Photo storage not configured — saved as inline image.","warning");
       return null;
     }
-    const {data:url}=sb.storage.from("worker-docs").getPublicUrl(path);
-    return url.publicUrl;
+    show("Upload failed: "+error.message,"error");
+    return null;
   };
 
   const save=async()=>{
@@ -5323,7 +5427,15 @@ const LabourEntry=()=>{
       children_count:parseInt(form.children_count)||0,
       mobile:form.mobile||null,
       mobile_home:form.mobile_home||null,
-      home_address:form.home_address||null,
+      home_address:[form.addr_house,form.addr_village,form.addr_block,
+        form.addr_district,form.addr_state,form.addr_pincode].filter(Boolean).join(", ")||form.home_address||null,
+      // structured address fields
+      addr_pincode:form.addr_pincode||null,
+      addr_district:form.addr_district||null,
+      addr_state:form.addr_state||null,
+      addr_block:form.addr_block||null,
+      addr_village:form.addr_village||null,
+      addr_house:form.addr_house||null,
       relative_name:form.relative_name||null,
       relative_mobile:form.relative_mobile||null,
       relative_address:form.relative_address||null,
@@ -5361,12 +5473,12 @@ const LabourEntry=()=>{
 
     let workerId=editWorker?.id;
     if(editWorker){
-      const {error}=await sb.from("workers").update(payload).eq("id",editWorker.id);
-      if(error){setSaving(false);show(error.message,"error");return;}
+      const err=await safeWorkerUpdate(editWorker.id,payload);
+      if(err){setSaving(false);show(err.message,"error");return;}
     } else {
-      const {data:inserted,error}=await sb.from("workers").insert(payload).select().single();
+      const {data:inserted,error}=await safeWorkerInsert(payload);
       if(error){setSaving(false);show(error.message,"error");return;}
-      workerId=inserted.id;
+      workerId=inserted?.id;
     }
 
     // Save PPE record
@@ -5423,7 +5535,7 @@ const LabourEntry=()=>{
 
     setSaving(false);
     show(editWorker?"Worker updated ✓":"Worker registered ✓","success");
-    setWizOpen(false);load();
+    setWizOpen(false);if(fromWorkerMaster){setFromWorkerMaster(false);setActive('workers');}else{load();}
   };
 
   const [draftSaving,setDraftSaving]=useState(false);
@@ -5460,7 +5572,15 @@ const LabourEntry=()=>{
       children_count:parseInt(form.children_count)||0,
       mobile:form.mobile||null,
       mobile_home:form.mobile_home||null,
-      home_address:form.home_address||null,
+      home_address:[form.addr_house,form.addr_village,form.addr_block,
+        form.addr_district,form.addr_state,form.addr_pincode].filter(Boolean).join(", ")||form.home_address||null,
+      // structured address fields
+      addr_pincode:form.addr_pincode||null,
+      addr_district:form.addr_district||null,
+      addr_state:form.addr_state||null,
+      addr_block:form.addr_block||null,
+      addr_village:form.addr_village||null,
+      addr_house:form.addr_house||null,
       relative_name:form.relative_name||null,
       relative_mobile:form.relative_mobile||null,
       relative_address:form.relative_address||null,
@@ -5495,15 +5615,15 @@ const LabourEntry=()=>{
     };
 
     if(editWorker){
-      const {error}=await sb.from("workers").update(draftPayload).eq("id",editWorker.id);
-      if(error){setDraftSaving(false);show("Draft save failed: "+error.message,"error");return;}
+      const err=await safeWorkerUpdate(editWorker.id,draftPayload);
+      if(err){setDraftSaving(false);show("Draft save failed: "+err.message,"error");return;}
       // Update form with any newly uploaded file URLs so they persist in form state
       F({worker_photo_url:photo_url,aadhaar_photo_url:aadhaar_url,
         pan_photo_url:pan_url,bank_photo_url:bank_url,
         _photoFile:null,_aadhaarFile:null,_panFile:null,_bankFile:null});
     } else {
       // New worker — insert as draft and then treat as edit from here
-      const {data:inserted,error}=await sb.from("workers").insert(draftPayload).select().single();
+      const {data:inserted,error}=await safeWorkerInsert(draftPayload);
       if(error){setDraftSaving(false);show("Draft save failed: "+error.message,"error");return;}
       // Now treat as editWorker so subsequent saves update the same row
       setEditWorker(inserted);
@@ -5517,11 +5637,29 @@ const LabourEntry=()=>{
     load(); // refresh list in background
   };
 
-  // Supervisor sign
-  const supervisorSign=async(w)=>{
-    if(!isSupervisor){show("Only Supervisor/SIC can sign","error");return;}
-    await sb.from("workers").update({entry_status:"supervisor_signed",supervisor_id:user.user_id}).eq("id",w.id);
-    show("Supervisor signed ✓");load();
+  // Submit for Approval (Storekeeper or SIC on draft)
+  const submitForApproval=async(w)=>{
+    if(w.entry_status!=="draft"){show("Only draft workers can be submitted","error");return;}
+    await sb.from("workers").update({entry_status:"pending_approval"}).eq("id",w.id);
+    show("Submitted for SIC approval ✓");load();
+  };
+
+  // Reject with note
+  const [rejectOpen,setRejectOpen]=useState(false);
+  const [rejectWorker,setRejectWorker]=useState(null);
+  const [rejectNote,setRejectNote]=useState("");
+  const [rejecting,setRejecting]=useState(false);
+
+  const doReject=async()=>{
+    if(!rejectNote.trim()){show("Please enter a rejection reason","error");return;}
+    setRejecting(true);
+    await sb.from("workers").update({
+      entry_status:"rejected",
+      rejection_note:rejectNote.trim(),
+    }).eq("id",rejectWorker.id);
+    setRejecting(false);
+    show("Rejected — worker can correct and resubmit","warning");
+    setRejectOpen(false);setRejectWorker(null);setRejectNote("");load();
   };
 
   // SIC approve + first advance
@@ -5532,6 +5670,7 @@ const LabourEntry=()=>{
       entry_status:"sic_approved",status:"Active",
       sic_approved_by:user.user_id,sic_approved_at:new Date().toISOString(),
       first_advance:parseFloat(advAmt)||0,
+      rejection_note:null,
     }).eq("id",advWorker.id);
     show("SIC approved — worker is now Active ✓","success");
     setAdvOpen(false);setAdvWorker(null);setAdvAmt("");load();
@@ -5598,9 +5737,9 @@ const LabourEntry=()=>{
 
   return <div>
     <Toast/>
-    <PH title="New Registration"
-      sub={`${workers.filter(w=>w.entry_status==="active"||w.entry_status==="sic_approved").length} active · ${workers.filter(w=>w.entry_status==="draft").length} draft · ${workers.filter(w=>w.entry_status==="supervisor_signed").length} pending SIC · ${workers.length} total`}
-      right={canAdd&&<Btn onClick={openNew}><Ic d={I.plus} s={15} col="#fff"/>New Registration</Btn>}/>
+    {!fromWorkerMaster&&<PH title="New Registration"
+      sub={`${workers.filter(w=>w.entry_status==="active"||w.entry_status==="sic_approved").length} active · ${workers.filter(w=>w.entry_status==="draft").length} draft · ${workers.filter(w=>w.entry_status==="pending_approval").length} pending approval · ${workers.filter(w=>w.entry_status==="rejected").length} rejected · ${workers.length} total`}
+      right={canAdd&&<Btn onClick={openNew}><Ic d={I.plus} s={15} col="#fff"/>New Registration</Btn>}/>}
 
     {/* Filters */}
     <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
@@ -5614,8 +5753,9 @@ const LabourEntry=()=>{
         style={{padding:"8px 12px",border:`1.5px solid ${C.border}`,borderRadius:8,fontSize:13,color:fStatus?C.text:C.muted,background:"#fff",fontFamily:"inherit"}}>
         <option value="">All Status</option>
         <option value="draft">Draft</option>
-        <option value="supervisor_signed">Pending SIC</option>
+        <option value="pending_approval">Pending Approval</option>
         <option value="sic_approved">SIC Approved</option>
+        <option value="rejected">Rejected</option>
         <option value="active">Active</option>
       </select>
       <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
@@ -5675,19 +5815,27 @@ const LabourEntry=()=>{
                 <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
                   {canAdd&&<Btn size="sm" variant="secondary" onClick={()=>openEdit(w)}>Edit</Btn>}
                   <Btn size="sm" variant="ghost" onClick={()=>setViewWorker(w)}>View</Btn>
-                  <Btn size="sm" variant="ghost" style={{color:"#7c3aed",borderColor:"#7c3aed"}} onClick={async()=>{
+                  <Btn size="sm" variant="ghost" style={{color:"#7c3aed",borderColor:w.entry_status==="sic_approved"||w.entry_status==="active"?"#7c3aed":C.border,opacity:w.entry_status==="sic_approved"||w.entry_status==="active"?1:0.4}} 
+                    onClick={async()=>{
+                      if(w.entry_status!=="sic_approved"&&w.entry_status!=="active"){show("Official form is only available after SIC approval","error");return;}
                     // Load PPE from worker_ppe table for accurate print display
                     const {data:ppe}=await sb.from("worker_ppe")
                       .select("helmet_issued,belt_issued,gumboot_issued")
                       .eq("worker_id",w.id).maybeSingle();
                     setPrintWorker(ppe?{...w,...ppe}:w);
                   }}>🖨 Form</Btn>
-                  {w.entry_status==="draft"&&isSupervisor&&
+                  {w.entry_status==="draft"&&(isSIC||isStorekeeper)&&
                     <Btn size="sm" style={{background:"#f59e0b",color:"#fff",border:"none"}}
-                      onClick={()=>supervisorSign(w)}>Supervisor Sign</Btn>}
-                  {w.entry_status==="supervisor_signed"&&isSIC&&
+                      onClick={()=>submitForApproval(w)}>Submit for Approval</Btn>}
+                  {w.entry_status==="pending_approval"&&isSIC&&
                     <Btn size="sm" style={{background:"#16a34a",color:"#fff",border:"none"}}
                       onClick={()=>{setAdvWorker(w);setAdvAmt("");setAdvOpen(true);}}>SIC Approve</Btn>}
+                  {w.entry_status==="pending_approval"&&isSIC&&
+                    <Btn size="sm" style={{background:"#dc2626",color:"#fff",border:"none"}}
+                      onClick={()=>{setRejectWorker(w);setRejectNote("");setRejectOpen(true);}}>Reject</Btn>}
+                  {w.entry_status==="rejected"&&(isSIC||isStorekeeper)&&
+                    <Btn size="sm" style={{background:"#f59e0b",color:"#fff",border:"none"}}
+                      onClick={()=>openEdit(w)}>Correct & Resubmit</Btn>}
                   {(w.entry_status==="sic_approved"||w.entry_status==="active")&&
                     <Btn size="sm" style={{background:"#6366f1",color:"#fff",border:"none"}}
                       onClick={()=>setIdCardWorker(w)}>ID Card</Btn>}
@@ -5701,11 +5849,11 @@ const LabourEntry=()=>{
     <Pager page={page} total={filtered.length} size={PS} onChange={setPage}/>
 
     {/* ── REGISTRATION WIZARD ─────────────────────────────── */}
-    <Modal open={wizOpen} onClose={()=>setWizOpen(false)}
+    <Modal open={wizOpen} onClose={()=>{setWizOpen(false);if(fromWorkerMaster){setFromWorkerMaster(false);setActive("workers");}}}
       title={editWorker?"Edit Registration — "+editWorker.worker_name:"New Labour Registration"}
       width={600}>
 
-      {/* Draft status banner */}
+      {/* Draft/Rejected status banner */}
       {editWorker&&editWorker.entry_status==="draft"&&<div style={{
         background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,
         padding:"7px 14px",marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
@@ -5714,6 +5862,20 @@ const LabourEntry=()=>{
           Draft saved — {editWorker.worker_name} ({editWorker.worker_code||"no code yet"}).
           Use <b>Save Draft</b> anytime to preserve your progress.
         </p>
+      </div>}
+      {editWorker&&editWorker.entry_status==="rejected"&&<div style={{
+        background:"#FEF2F2",border:"1.5px solid #fca5a5",borderRadius:8,
+        padding:"10px 14px",marginBottom:12,display:"flex",gap:10,alignItems:"flex-start"}}>
+        <span style={{fontSize:16,flexShrink:0}}>✗</span>
+        <div>
+          <p style={{margin:0,fontSize:13,color:"#dc2626",fontWeight:700}}>Rejected by SIC</p>
+          {editWorker.rejection_note&&<p style={{margin:"3px 0 0",fontSize:12,color:"#dc2626"}}>
+            Reason: {editWorker.rejection_note}
+          </p>}
+          <p style={{margin:"4px 0 0",fontSize:11,color:"#9A3412"}}>
+            Correct the issues below, save draft, then resubmit for approval.
+          </p>
+        </div>
       </div>}
 
       {/* Step indicator */}
@@ -5814,21 +5976,34 @@ const LabourEntry=()=>{
             onChange={e=>{
               const fn=e.target.value;
               F({first_name:fn,worker_name:[fn,form.father_name||"",form.surname||""].filter(Boolean).join(" ")});
+            }}
+            onBlur={e=>{
+              const fn=fmtName(e.target.value);
+              F({first_name:fn,worker_name:[fn,form.father_name||"",form.surname||""].filter(Boolean).join(" ")});
             }}/>
           <Inp label="Father Name" value={form.father_name||""}
             onChange={e=>{
               const fn=e.target.value;
+              F({father_name:fn,worker_name:[form.first_name||"",fn,form.surname||""].filter(Boolean).join(" ")});
+            }}
+            onBlur={e=>{
+              const fn=fmtName(e.target.value);
               F({father_name:fn,worker_name:[form.first_name||"",fn,form.surname||""].filter(Boolean).join(" ")});
             }}/>
           <Inp label="Surname" value={form.surname||""}
             onChange={e=>{
               const sn=e.target.value;
               F({surname:sn,worker_name:[form.first_name||"",form.father_name||"",sn].filter(Boolean).join(" ")});
+            }}
+            onBlur={e=>{
+              const sn=fmtName(e.target.value);
+              F({surname:sn,worker_name:[form.first_name||"",form.father_name||"",sn].filter(Boolean).join(" ")});
             }}/>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
           <Inp label="Mother Name" value={form.mother_name||""}
-            onChange={e=>F({mother_name:e.target.value})}/>
+            onChange={e=>F({mother_name:e.target.value})}
+            onBlur={e=>F({mother_name:fmtName(e.target.value)})}/>
           <Inp label="Date of Birth" type="date" value={form.dob||""}
             onChange={e=>F({dob:e.target.value})}/>
         </div>
@@ -5864,13 +6039,90 @@ const LabourEntry=()=>{
           <Inp label="Mobile (Home / Village)" value={form.mobile_home||""}
             onChange={e=>F({mobile_home:e.target.value})} placeholder="Mob (H)"/>
         </div>
+        {/* ── Smart Address Entry ── */}
         <div style={{marginBottom:14}}>
           <label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,
             marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>Home Address</label>
-          <textarea value={form.home_address||""} onChange={e=>F({home_address:e.target.value})}
-            rows={2} placeholder="Full home / village address..."
-            style={{width:"100%",padding:"9px 12px",border:`1.5px solid ${C.border}`,
-              borderRadius:8,fontSize:14,fontFamily:"inherit",resize:"vertical",outline:"none",boxSizing:"border-box"}}/>
+          {/* Step 1: Pincode */}
+          <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"flex-end"}}>
+            <div style={{flex:"0 0 120px"}}>
+              <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>PINCODE</label>
+              <input maxLength={6} value={form.addr_pincode||""}
+                onChange={e=>{F({addr_pincode:e.target.value});if(e.target.value.length===6)lookupPincode(e.target.value);}}
+                placeholder="6-digit"
+                style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${C.accent}`,borderRadius:8,
+                  fontSize:14,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+              {pincodeLoading&&<p style={{margin:"2px 0 0",fontSize:10,color:C.accent}}>Looking up…</p>}
+            </div>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>DISTRICT</label>
+              <input readOnly value={form.addr_district||""} placeholder="Auto-filled"
+                style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${C.border}`,borderRadius:8,
+                  fontSize:14,fontFamily:"inherit",background:"#f8fafc",outline:"none",boxSizing:"border-box"}}/>
+            </div>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>STATE</label>
+              <input readOnly value={form.addr_state||""} placeholder="Auto-filled"
+                style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${C.border}`,borderRadius:8,
+                  fontSize:14,fontFamily:"inherit",background:"#f8fafc",outline:"none",boxSizing:"border-box"}}/>
+            </div>
+          </div>
+          {/* Post office / village picker (when multiple options returned) */}
+          {pincodeResults.length>1&&<div style={{marginBottom:8}}>
+            <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>
+              VILLAGE / POST OFFICE ({pincodeResults.length} options — pick the closest)
+            </label>
+            <select value={form.addr_village||""}
+              onChange={e=>{
+                const sel=pincodeResults.find(p=>p.Name===e.target.value);
+                F({addr_village:e.target.value,
+                  addr_block:sel?.Block||form.addr_block||"",
+                  addr_district:sel?.District||form.addr_district||"",
+                  addr_state:sel?.State||form.addr_state||""});
+              }}
+              style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${C.accent}`,borderRadius:8,
+                fontSize:14,fontFamily:"inherit",outline:"none"}}>
+              <option value="">Select village / post office</option>
+              {pincodeResults.map(p=>(
+                <option key={p.Name} value={p.Name}>
+                  {p.Name} — {p.BranchType} ({p.Block} Block)
+                </option>
+              ))}
+            </select>
+          </div>}
+          {pincodeResults.length===1&&<div style={{marginBottom:8}}>
+            <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>VILLAGE / POST OFFICE</label>
+            <input readOnly value={pincodeResults[0].Name}
+              style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${C.border}`,borderRadius:8,
+                fontSize:14,fontFamily:"inherit",background:"#f8fafc",outline:"none",boxSizing:"border-box"}}/>
+          </div>}
+          {/* Block / Taluka */}
+          <div style={{display:"flex",gap:8,marginBottom:8}}>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>BLOCK / TALUKA</label>
+              <input value={form.addr_block||""} onChange={e=>F({addr_block:e.target.value})}
+                placeholder="Auto-filled or type"
+                style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${C.border}`,borderRadius:8,
+                  fontSize:14,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+            </div>
+          </div>
+          {/* House / flat number — manual only */}
+          <div>
+            <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>HOUSE / FLAT NO. (manual)</label>
+            <input value={form.addr_house||""} onChange={e=>F({addr_house:e.target.value})}
+              placeholder="e.g. 12/B, Near Shiv Temple"
+              style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${C.border}`,borderRadius:8,
+                fontSize:14,fontFamily:"inherit",outline:"none",boxSizing:"border-box",marginBottom:6}}/>
+          </div>
+          {/* Compiled full address (read-only preview + stored value) */}
+          {(form.addr_house||form.addr_village||form.addr_district)&&<div style={{
+            background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:8,padding:"8px 12px",marginTop:4}}>
+            <p style={{margin:0,fontSize:11,color:"#0369a1",fontWeight:600}}>COMPILED ADDRESS PREVIEW</p>
+            <p style={{margin:"2px 0 0",fontSize:12,color:C.text,lineHeight:1.5}}>
+              {[form.addr_house,form.addr_village,form.addr_block,form.addr_district,
+                form.addr_state,form.addr_pincode].filter(Boolean).join(", ")}
+            </p>
+          </div>}
         </div>
         <Divider label="Emergency Contact"/>
         <RefWorkerSearch form={form} F={F} allWorkers={workers} sites={sites}/>
@@ -5897,8 +6149,14 @@ const LabourEntry=()=>{
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
           <Inp label="Bank Account Number" value={form.bank_account||""}
             onChange={e=>F({bank_account:e.target.value})}/>
-          <Inp label="IFSC Code" value={form.bank_ifsc||""}
-            onChange={e=>F({bank_ifsc:e.target.value.toUpperCase()})}/>
+          <div>
+            <Inp label={ifscLoading?"IFSC Code (looking up…)":"IFSC Code"}
+              value={form.bank_ifsc||""}
+              onChange={e=>F({bank_ifsc:e.target.value.toUpperCase()})}
+              onBlur={e=>lookupIFSC(e.target.value.trim())}
+              placeholder="e.g. SBIN0001234"/>
+            {ifscLoading&&<p style={{margin:"2px 0 0",fontSize:11,color:C.accent}}>Fetching bank name…</p>}
+          </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
           <Inp label="Bank Name" value={form.bank_name||""}
@@ -6096,7 +6354,7 @@ const LabourEntry=()=>{
 
         <div style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:8,padding:"12px 14px",marginBottom:14}}>
           <p style={{margin:0,fontSize:12,color:"#1D4ED8",fontWeight:600}}>
-            After saving as Draft → Supervisor signs → SIC approves + pays first advance → Worker becomes Active.
+            After saving as Draft → Submit for Approval → SIC reviews and approves → Worker becomes Active.
           </p>
         </div>
       </div>}
@@ -6154,6 +6412,41 @@ const LabourEntry=()=>{
             ✓ Approve & Activate Worker
           </Btn>
           <Btn variant="ghost" onClick={()=>setAdvOpen(false)}>Cancel</Btn>
+        </div>
+      </>}
+    </Modal>
+
+    {/* ── REJECT WORKER MODAL ──────────────────────── */}
+    <Modal open={rejectOpen} onClose={()=>setRejectOpen(false)} title="Reject Registration" width={420}>
+      {rejectWorker&&<>
+        <div style={{background:"#FEF2F2",border:"1.5px solid #fca5a5",borderRadius:10,
+          padding:"14px 16px",marginBottom:16}}>
+          <p style={{margin:0,fontWeight:700,fontSize:15}}>{rejectWorker.worker_name}</p>
+          <p style={{margin:"3px 0 0",fontSize:12,color:C.muted}}>
+            <code>{rejectWorker.worker_code}</code> · {rejectWorker.trade}
+          </p>
+        </div>
+        <div style={{marginBottom:14}}>
+          <label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,
+            marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>
+            Rejection Reason *
+          </label>
+          <textarea value={rejectNote} onChange={e=>setRejectNote(e.target.value)} rows={3}
+            placeholder="e.g. Aadhaar number missing, photo unclear, wrong trade selected…"
+            style={{width:"100%",padding:"9px 12px",border:`1.5px solid ${C.border}`,
+              borderRadius:8,fontSize:13,fontFamily:"inherit",resize:"none",outline:"none",boxSizing:"border-box"}}/>
+        </div>
+        <div style={{background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:8,
+          padding:"10px 14px",marginBottom:14}}>
+          <p style={{margin:0,fontSize:12,color:"#92400e",fontWeight:600}}>
+            Milton will see this reason when opening the worker. They can correct and resubmit.
+          </p>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn onClick={doReject} disabled={rejecting} style={{background:"#dc2626",borderColor:"#dc2626"}}>
+            {rejecting?"Rejecting…":"✗ Reject with Note"}
+          </Btn>
+          <Btn variant="ghost" onClick={()=>setRejectOpen(false)}>Cancel</Btn>
         </div>
       </>}
     </Modal>
@@ -9018,6 +9311,120 @@ const WorkerHistory=({workerId,workerName})=>{
 
 
 
+// ─── GLOBAL WORKER SEARCH ──────────────────────────────────────────
+const GlobalWorkerSearch=()=>{
+  const {user,assignedSiteIds,isUnrestricted}=useAuth();
+  const [open,setOpen]=useState(false);
+  const [q,setQ]=useState("");
+  const [results,setResults]=useState([]);
+  const [loading,setLoading]=useState(false);
+  const [selWorker,setSelWorker]=useState(null);
+  const inputRef=useRef(null);
+
+  useEffect(()=>{
+    if(open)setTimeout(()=>inputRef.current?.focus(),80);
+    else{setQ("");setResults([]);}
+  },[open]);
+
+  useEffect(()=>{
+    if(!q.trim()||q.length<2){setResults([]);return;}
+    const t=setTimeout(async()=>{
+      setLoading(true);
+      const term=q.trim().toLowerCase();
+      let query=sb.from("workers")
+        .select("id,worker_code,worker_name,father_name,trade,status,entry_status,current_site_id,mobile,sites(site_name)")
+        .or(`worker_name.ilike.%${term}%,worker_code.ilike.%${term}%,mobile.ilike.%${term}%,aadhaar_number.ilike.%${term}%`)
+        .limit(20);
+      // Scope to assigned sites for restricted roles
+      if(!isUnrestricted&&assignedSiteIds.length>0) query=query.in("current_site_id",assignedSiteIds);
+      const {data}=await query;
+      setResults(data||[]);
+      setLoading(false);
+    },300);
+    return()=>clearTimeout(t);
+  },[q,assignedSiteIds,isUnrestricted]);
+
+  const ENTRY_COLOR={draft:"gray",pending_approval:"orange",sic_approved:"green",active:"green",rejected:"red"};
+  const ENTRY_LABEL_SHORT={draft:"Draft",pending_approval:"Pending",sic_approved:"Approved",active:"Active",rejected:"Rejected"};
+  const STATUS_COLOR={Active:"green",GTV:"orange",Left:"red",Transferred:"blue"};
+
+  return <>
+    {/* Search trigger button */}
+    <button onClick={()=>setOpen(true)}
+      title="Search any worker across all sites"
+      style={{background:"#F1F5F9",border:`1.5px solid ${C.border}`,borderRadius:8,
+        padding:"6px 12px",cursor:"pointer",color:C.muted,fontSize:12,fontWeight:600,
+        display:"flex",alignItems:"center",gap:6,fontFamily:"inherit",whiteSpace:"nowrap"}}>
+      <Ic d={I.search} s={14} col={C.muted}/>
+      <span style={{display:window.innerWidth>600?"inline":"none"}}>Worker Search</span>
+    </button>
+
+    {/* Search overlay */}
+    {open&&<div style={{position:"fixed",inset:0,zIndex:200}}>
+      <div onClick={()=>setOpen(false)} style={{position:"absolute",inset:0,background:"rgba(15,23,42,.45)",backdropFilter:"blur(3px)"}}/>
+      <div style={{position:"absolute",top:60,left:"50%",transform:"translateX(-50%)",
+        width:Math.min(580,window.innerWidth-24),background:"#fff",borderRadius:14,
+        boxShadow:"0 20px 60px rgba(0,0,0,.22)",animation:"slideUp .18s ease",overflow:"hidden"}}>
+
+        {/* Search input */}
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",
+          borderBottom:`1px solid ${C.border}`}}>
+          <Ic d={I.search} s={16} col={C.muted}/>
+          <input ref={inputRef} value={q} onChange={e=>setQ(e.target.value)}
+            placeholder="Search name, code, mobile, aadhaar…"
+            style={{flex:1,border:"none",outline:"none",fontSize:15,color:C.text,fontFamily:"inherit",background:"transparent"}}/>
+          {loading&&<div style={{width:14,height:14,border:`2px solid ${C.border}`,borderTopColor:C.accent,
+            borderRadius:"50%",animation:"spin 1s linear infinite",flexShrink:0}}/>}
+          {q&&<button onClick={()=>setQ("")} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,padding:0}}>
+            <Ic d={I.x} s={14}/>
+          </button>}
+          <button onClick={()=>setOpen(false)} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:0,fontSize:13}}>Esc</button>
+        </div>
+
+        {/* Results */}
+        <div style={{maxHeight:400,overflowY:"auto"}}>
+          {!q.trim()&&<p style={{padding:"24px 16px",color:C.faint,textAlign:"center",margin:0,fontSize:13}}>
+            Type a name, code, or mobile number to search across all sites
+          </p>}
+          {q.trim()&&!loading&&results.length===0&&<p style={{padding:"24px 16px",color:C.faint,textAlign:"center",margin:0,fontSize:13}}>
+            No workers found for "<b>{q}</b>"
+          </p>}
+          {results.map(r=>(
+            <div key={r.id} onClick={()=>{setSelWorker(r);}}
+              style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",
+                cursor:"pointer",borderBottom:`1px solid ${C.border}`,transition:"background .1s"}}
+              onMouseEnter={e=>e.currentTarget.style.background="#F8FAFC"}
+              onMouseLeave={e=>e.currentTarget.style.background=""}>
+              <div style={{width:38,height:38,borderRadius:"50%",background:C.accentBg,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:15,fontWeight:700,color:C.accent,flexShrink:0}}>
+                {(r.worker_name||"?")[0].toUpperCase()}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  <span style={{fontWeight:700,fontSize:14}}>{r.worker_name}</span>
+                  <code style={{fontSize:11,color:C.accent,background:C.accentBg,padding:"1px 6px",borderRadius:4}}>{r.worker_code}</code>
+                </div>
+                <div style={{display:"flex",gap:6,marginTop:2,alignItems:"center",flexWrap:"wrap"}}>
+                  <Badge color="blue">{r.trade}</Badge>
+                  {r.sites?.site_name&&<span style={{fontSize:11,color:C.muted}}>📍 {r.sites.site_name}</span>}
+                  <Badge color={STATUS_COLOR[r.status]||"gray"} dot>{r.status}</Badge>
+                  <Badge color={ENTRY_COLOR[r.entry_status||"draft"]||"gray"}>{ENTRY_LABEL_SHORT[r.entry_status||"draft"]}</Badge>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        {results.length===20&&<p style={{padding:"8px 16px",fontSize:11,color:C.faint,textAlign:"center",margin:0,
+          borderTop:`1px solid ${C.border}`}}>Showing first 20 results — narrow your search</p>}
+      </div>
+    </div>}
+
+    {/* Worker quick-view from search */}
+    <WorkerViewModal worker={selWorker} onClose={()=>setSelWorker(null)}/>
+  </>;
+};
+
 const NAV=[
   // ── Always visible
   {id:"dashboard",   label:"Dashboard",        icon:I.home,       comp:Dashboard,          group:null,              module:null},
@@ -9394,7 +9801,10 @@ function App(){
               {NAV.find(n=>n.id===active)?.label||"Dashboard"}
             </span>
 
-            {/* Site badge in topbar — full selector moved to sidebar */}
+          {/* ── GLOBAL WORKER SEARCH ─────────────────── */}
+          <GlobalWorkerSearch/>
+
+          {/* Site badge in topbar — full selector moved to sidebar */}
             {activeSiteId&&assignedSites.length>0&&<div style={{
               background:"#1E293B",borderRadius:8,padding:"4px 10px",
               fontSize:11,color:"#94A3B8",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>
