@@ -1653,9 +1653,15 @@ const WorkerMaster=()=>{
       }
       return all;
     };
+    // Build server-side filtered worker query — only load what's needed
+    let wq=sb.from("workers").select("*,sites(site_name)").eq("is_active",true);
+    if(!isUnrestricted&&assignedSiteIds.length>0){
+      // Restricted user: Active workers on assigned sites + their own GTV/Left
+      wq=wq.or(`status.eq.Active,status.eq.GTV,status.eq.Left`);
+    }
     const [w,s,st,m,bl]=await Promise.all([
-      // Workers: Active workers scoped to user's assigned site(s). GTV/Left always visible to permitted users.
-      fetchAll(sb.from("workers").select("*,sites(site_name)").order("worker_name")),
+      // Workers: server-filtered, not full table scan
+      fetchAll(wq.order("worker_name")),
       // Load ALL active sites — SIC needs to see other sites in dropdown (view-only)
       sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name")
         .then(r=>r.data||[]),
@@ -5217,7 +5223,7 @@ const LabourEntry=()=>{
       return all;
     };
     const [w,s,st,bl]=await Promise.all([
-      fetchAll(sb.from("workers").select("*,sites(site_name)").order("created_at",{ascending:false})),
+      fetchAll(sb.from("workers").select("*,sites(site_name)").eq("is_active",true).order("created_at",{ascending:false})),
       // Load ALL active sites — SIC needs to see other sites in dropdown (view-only)
       sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name")
         .then(r=>r.data||[]),
