@@ -1653,12 +1653,13 @@ const WorkerMaster=()=>{
       }
       return all;
     };
-    // Build server-side filtered worker query — only load what's needed
-    let wq=sb.from("workers").select("*,sites(site_name)").eq("is_active",true);
-    if(!isUnrestricted&&assignedSiteIds.length>0){
-      // Restricted user: Active workers on assigned sites + their own GTV/Left
-      wq=wq.or(`status.eq.Active,status.eq.GTV,status.eq.Left`);
-    }
+   // Build server-side filtered worker query
+let wq = sb.from("workers").select("*,sites(site_name)").eq("is_active", true);
+// If user is restricted to specific sites, filter at DB level
+if (!isUnrestricted && assignedSiteIds.length > 0) {
+  wq = wq.in("current_site_id", assignedSiteIds);
+}
+fetchAll(wq.order("worker_name")),
     const [w,s,st,m,bl]=await Promise.all([
       // Workers: server-filtered, not full table scan
       fetchAll(wq.order("worker_name")),
