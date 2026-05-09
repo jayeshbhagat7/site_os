@@ -1584,8 +1584,10 @@ const WorkerMaster=()=>{
   const canSetGTV=["SIC","Admin"].includes(user.role);
   const canSeeGTVLeft=["SIC","Admin","Owner"].includes(user.role);
   // ── View selector: siteId string | "gtv_left"
-  const defaultView=activeSiteId?String(activeSiteId):(assignedSiteIds.length>0?String(assignedSiteIds[0]):"");
+  const defaultView=activeSiteId?String(activeSiteId):(assignedSiteIds.length>0?String(assignedSiteIds[0]):"1");
   const [selView,setSelView]=useState(defaultView);
+  // Sync selView when activeSiteId loads after mount
+  useEffect(()=>{if(activeSiteId&&selView==="1"&&String(activeSiteId)!=="1")setSelView(String(activeSiteId));},[activeSiteId]);
   const [data,setData]=useState([]);const [sites,setSites]=useState([]);
   const [stores,setStores]=useState([]);const [formStores,setFormStores]=useState([]);
   const [allBuildings,setAllBuildings]=useState([]);const [formBuildings,setFormBuildings]=useState([]);
@@ -1655,7 +1657,7 @@ const WorkerMaster=()=>{
     };
     const [w,s,st,m,bl]=await Promise.all([
       // Workers: Active workers scoped to user's assigned site(s). GTV/Left always visible to permitted users.
-      fetchAll((()=>{let wq=sb.from("workers").select("*,sites(site_name)").eq("is_active",true);if(!isUnrestricted&&assignedSiteIds.length>0){wq=wq.in("current_site_id",assignedSiteIds);}return wq.order("worker_name");})()),
+      fetchAll(sb.from("workers").select("*,sites(site_name)").order("worker_name")),
       // Load ALL active sites — SIC needs to see other sites in dropdown (view-only)
       sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name")
         .then(r=>r.data||[]),
@@ -5217,7 +5219,7 @@ const LabourEntry=()=>{
       return all;
     };
     const [w,s,st,bl]=await Promise.all([
-      fetchAll((()=>{let wq=sb.from("workers").select("*,sites(site_name)");if(!isUnrestricted&&assignedSiteIds.length>0){wq=wq.in("current_site_id",assignedSiteIds);}return wq.order("created_at",{ascending:false});})()),
+      fetchAll((()=>{let wq=sb.from("workers").select("*,sites(site_name)").eq("is_active",true);if(!isUnrestricted&&assignedSiteIds.length>0){wq=wq.in("current_site_id",assignedSiteIds);}return wq.order("created_at",{ascending:false});})()),
       // Load ALL active sites — SIC needs to see other sites in dropdown (view-only)
       sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name")
         .then(r=>r.data||[]),
