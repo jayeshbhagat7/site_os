@@ -5217,7 +5217,7 @@ const LabourEntry=()=>{
       return all;
     };
     const [w,s,st,bl]=await Promise.all([
-      fetchAll((()=>{let wq=sb.from("workers").select("*,sites(site_name)").eq("is_active",true);if(!isUnrestricted&&assignedSiteIds.length>0){wq=wq.in("current_site_id",assignedSiteIds);}return wq.order("created_at",{ascending:false});})()),
+      fetchAll((()=>{let wq=sb.from("workers").select("*,sites(site_name)");if(!isUnrestricted&&assignedSiteIds.length>0){wq=wq.in("current_site_id",assignedSiteIds);}return wq.order("created_at",{ascending:false});})()),
       // Load ALL active sites — SIC needs to see other sites in dropdown (view-only)
       sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name")
         .then(r=>r.data||[]),
