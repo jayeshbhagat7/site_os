@@ -5753,14 +5753,16 @@ const LabourEntry=()=>{
     if(w.entry_status!=="draft"){show("Only draft workers can be submitted","error");return;}
     if(isSIC){
       // SIC/Admin auto-approves directly
-      await sb.from("workers").update({
+      const {error}=await sb.from("workers").update({
         entry_status:"sic_approved",status:"Active",
         sic_approved_by:user.user_id,sic_approved_at:new Date().toISOString(),
         rejection_note:null,
       }).eq("id",w.id);
+      if(error){show("Approval failed: "+error.message,"error");return;}
       show("Approved & activated \u2713 (SIC auto-approval)","success");
     } else {
-      await sb.from("workers").update({entry_status:"pending_approval"}).eq("id",w.id);
+      const {error}=await sb.from("workers").update({entry_status:"pending_approval"}).eq("id",w.id);
+      if(error){show("Submit failed: "+error.message,"error");return;}
       show("Submitted for SIC approval \u2713");
     }
     load();
