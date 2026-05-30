@@ -9,7 +9,13 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="SiteOS"/>
 <meta name="application-name" content="SiteOS"/>
-<meta name="description" content="SiteOS — Construction ERP by Umiya Associates"/>
+<meta name="description" content="SiteOS — Construction ERP by Umiya Associates. Manage sites, workers, attendance, payroll and materials."/>
+<meta name="robots" content="noindex, nofollow"/>
+<meta http-equiv="X-Content-Type-Options" content="nosniff"/>
+<meta http-equiv="X-Frame-Options" content="DENY"/>
+<meta name="referrer" content="strict-origin-when-cross-origin"/>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231D4ED8'/><text x='50' y='68' font-size='50' font-weight='bold' text-anchor='middle' fill='white'>S</text></svg>"/>
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231D4ED8'/><text x='50' y='68' font-size='50' font-weight='bold' text-anchor='middle' fill='white'>S</text></svg>"/>
 <title>SiteOS — Construction ERP</title>
 <script>
 // Inject manifest only when hosted (not file:// or Claude preview)
@@ -27,6 +33,7 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#F1F5F9;color:#0F172A}
@@ -34,30 +41,46 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#F1F5F9;color:#0F172
 ::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:99px}
 ::-webkit-scrollbar-track{background:transparent}
 input:focus,select:focus,textarea:focus{outline:none;border-color:#1D4ED8!important;box-shadow:0 0 0 3px rgba(29,78,216,.12)!important}
+button:focus-visible,a:focus-visible{outline:2px solid #1D4ED8;outline-offset:2px;border-radius:4px}
+*:focus:not(:focus-visible){outline:none}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes slideUp{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
 </style>
 </head>
 <body>
+<a href="#main-content" style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;z-index:9999" 
+   onfocus="this.style.position='fixed';this.style.left='16px';this.style.top='16px';this.style.width='auto';this.style.height='auto';this.style.overflow='visible';this.style.background='#1D4ED8';this.style.color='#fff';this.style.padding='12px 20px';this.style.borderRadius='8px';this.style.fontWeight='700';this.style.fontSize='14px';this.style.textDecoration='none'"
+   onblur="this.style.position='absolute';this.style.left='-9999px';this.style.width='1px';this.style.height='1px';this.style.overflow='hidden'">
+  Skip to main content
+</a>
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useCallback,useRef,useMemo,createContext,useContext}=React;
 const {createClient}=supabase;
-const sb=createClient(
-  "https://nixusvqbslokiexxxtic.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5peHVzdnFic2xva2lleHh4dGljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4ODM0NzIsImV4cCI6MjA4ODQ1OTQ3Mn0.DyFJ48Iryl5cSKB1fZbuNdcge30y0vevEKaR2UyKaLQ"
-);
 
-const SERVICE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5peHVzdnFic2xva2lleHh4dGljIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Mjg4MzQ3MiwiZXhwIjoyMDg4NDU5NDcyfQ.wJ8psPHNvrAQSPtx0n2AL2WIsqqzWiqr78zSthRnYmI";
-window.__SUPABASE_SERVICE_KEY__=SERVICE_KEY;
+// ─── CONFIGURATION ──────────────────────────────────────────────
+// Supabase credentials loaded from config.js
+const SUPABASE_URL=window.__SITEOS_CONFIG__?.SUPABASE_URL||"";
+const SUPABASE_ANON_KEY=window.__SITEOS_CONFIG__?.SUPABASE_ANON_KEY||"";
 
-// Admin client — uses service_role key, required for auth.admin operations
-// (createUser, updateUserById, deleteUser)
-const sbAdmin=createClient(
-  "https://nixusvqbslokiexxxtic.supabase.co",
-  SERVICE_KEY,
+if(!SUPABASE_URL||!SUPABASE_ANON_KEY){
+  document.getElementById("root").innerHTML='<div style="padding:40px;text-align:center;font-family:system-ui"><h2>Configuration Missing</h2><p>config.js not found or incomplete. Check deployment.</p></div>';
+  throw new Error("SiteOS: Missing Supabase configuration");
+}
+
+const sb=createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+
+// ─── ADMIN CLIENT ───────────────────────────────────────────────
+// The service_role key is needed for admin operations (user creation, password reset).
+// It's loaded from config.js which is committed to the repo.
+// NOTE: Keep this repo PRIVATE. If you ever make it public, rotate this key immediately.
+const SERVICE_KEY=window.__SITEOS_CONFIG__?.SUPABASE_SERVICE_KEY||"";
+const HAS_ADMIN=!!SERVICE_KEY;
+
+const sbAdmin=HAS_ADMIN?createClient(
+  SUPABASE_URL,SERVICE_KEY,
   {auth:{autoRefreshToken:false,persistSession:false,storageKey:"siteos-admin"}}
-);
+):null;
 
 // ─── AUTH CONTEXT ───────────────────────────────────────────────
 const AuthCtx=createContext(null);
@@ -224,8 +247,8 @@ const Divider=({label})=>(
 const SlideOver=({open,onClose,title,subtitle,children,width=500})=>{
   if(!open)return null;
   const w=Math.min(width,window.innerWidth);
-  return <div style={{position:"fixed",inset:0,zIndex:50}}>
-    <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(15,23,42,.5)",backdropFilter:"blur(3px)"}}/>
+  return <div style={{position:"fixed",inset:0,zIndex:50}} role="dialog" aria-modal="true" aria-label={title}>
+    <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(15,23,42,.5)",backdropFilter:"blur(3px)"}} aria-hidden="true"/>
     <div style={{position:"absolute",right:0,top:0,bottom:0,width:w,background:"#fff",
       boxShadow:"-8px 0 32px rgba(0,0,0,.15)",display:"flex",flexDirection:"column",animation:"slideUp .2s ease"}}>
       <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,
@@ -234,7 +257,7 @@ const SlideOver=({open,onClose,title,subtitle,children,width=500})=>{
           <h3 style={{margin:0,fontSize:16,fontWeight:800}}>{title}</h3>
           {subtitle&&<p style={{margin:"3px 0 0",fontSize:12,color:C.muted}}>{subtitle}</p>}
         </div>
-        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,padding:4}}>
+        <button onClick={onClose} aria-label="Close panel" style={{background:"none",border:"none",cursor:"pointer",color:C.muted,padding:4}}>
           <Ic d={I.x}/>
         </button>
       </div>
@@ -246,15 +269,16 @@ const SlideOver=({open,onClose,title,subtitle,children,width=500})=>{
 const Modal=({open,onClose,title,children,width=420})=>{
   if(!open)return null;
   return <div style={{position:"fixed",inset:0,zIndex:60,display:"flex",
-    alignItems:"flex-start",justifyContent:"center",padding:"20px 16px",overflowY:"auto"}}>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.5)",backdropFilter:"blur(3px)"}}/> 
+    alignItems:"flex-start",justifyContent:"center",padding:"20px 16px",overflowY:"auto"}}
+    role="dialog" aria-modal="true" aria-label={title}>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.5)",backdropFilter:"blur(3px)"}} aria-hidden="true"/> 
     <div style={{position:"relative",width:Math.min(width,window.innerWidth-32),
       background:"#fff",borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,.2)",animation:"slideUp .2s ease",
       maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
       <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,
         display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
         <h3 style={{margin:0,fontSize:16,fontWeight:800}}>{title}</h3>
-        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:C.muted}}>
+        <button onClick={onClose} aria-label="Close dialog" style={{background:"none",border:"none",cursor:"pointer",color:C.muted}}>
           <Ic d={I.x}/>
         </button>
       </div>
@@ -267,7 +291,7 @@ const useToast=()=>{
   const [t,setT]=useState(null);
   const show=(msg,type="success")=>{setT({msg,type});setTimeout(()=>setT(null),3500);};
   const Toast=()=>!t?null:(
-    <div style={{position:"fixed",bottom:24,left:24,zIndex:200,
+    <div role="alert" aria-live="assertive" style={{position:"fixed",bottom:24,left:24,zIndex:200,
       background:t.type==="success"?C.green:t.type==="warning"?C.orange:C.red,
       color:"#fff",padding:"11px 18px",borderRadius:10,fontSize:13,fontWeight:700,
       boxShadow:"0 4px 20px rgba(0,0,0,.2)",display:"flex",alignItems:"center",gap:8,animation:"slideUp .2s ease"}}>
@@ -278,23 +302,61 @@ const useToast=()=>{
   return {show,Toast};
 };
 
+// ─── ERROR BOUNDARY ─────────────────────────────────────────────
+class ErrorBoundary extends React.Component{
+  constructor(props){super(props);this.state={hasError:false,error:null};}
+  static getDerivedStateFromError(error){return {hasError:true,error};}
+  componentDidCatch(error,info){console.error("SiteOS Error:",error,info);}
+  render(){
+    if(this.state.hasError){
+      return React.createElement("div",{style:{padding:40,textAlign:"center",minHeight:"50vh",
+        display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}},
+        React.createElement("div",{style:{width:64,height:64,borderRadius:18,background:"#FEE2E2",
+          display:"flex",alignItems:"center",justifyContent:"center"}},
+          React.createElement(Ic,{d:I.alert,s:28,col:"#DC2626"})),
+        React.createElement("h3",{style:{margin:0,fontSize:18,fontWeight:800}},"Something went wrong"),
+        React.createElement("p",{style:{margin:0,color:"#64748B",fontSize:13,maxWidth:400}},
+          this.state.error?.message||"An unexpected error occurred. Please refresh the page."),
+        React.createElement("button",{onClick:()=>this.setState({hasError:false,error:null}),
+          style:{background:"#1D4ED8",color:"#fff",border:"none",padding:"10px 20px",
+            borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:14}},"Try Again"),
+        React.createElement("button",{onClick:()=>window.location.reload(),
+          style:{background:"transparent",color:"#64748B",border:"1.5px solid #E2E8F0",
+            padding:"10px 20px",borderRadius:8,fontWeight:600,cursor:"pointer",fontSize:13,marginTop:4}},"Reload Page")
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ─── DEBOUNCED SEARCH HOOK ──────────────────────────────────────
+const useDebounce=(value,delay=300)=>{
+  const [debounced,setDebounced]=useState(value);
+  useEffect(()=>{
+    const t=setTimeout(()=>setDebounced(value),delay);
+    return ()=>clearTimeout(t);
+  },[value,delay]);
+  return debounced;
+};
+
 const Search=({value,onChange,placeholder="Search..."})=>(
   <div style={{position:"relative",flex:"1 1 200px"}}>
     <div style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",color:C.faint}}>
       <Ic d={I.search} s={15}/>
     </div>
     <input id="searchbar_input" name="search" value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+      aria-label={placeholder}
       style={{width:"100%",paddingLeft:34,paddingRight:12,paddingTop:8,paddingBottom:8,
         border:`1.5px solid ${C.border}`,borderRadius:8,fontSize:13,color:C.text,background:"#fff",fontFamily:"inherit"}}/>
   </div>
 );
 
 const Tbl=({cols,rows,empty="No records"})=>(
-  <div style={{overflowX:"auto",border:`1px solid ${C.border}`,borderRadius:10,background:"#fff"}}>
-    <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+  <div style={{overflowX:"auto",border:`1px solid ${C.border}`,borderRadius:10,background:"#fff"}} role="region" aria-label="Data table" tabIndex="0">
+    <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}} role="table">
       <thead>
         <tr style={{background:"#F8FAFC"}}>
-          {cols.map((c,i)=><th key={i} style={{padding:"10px 14px",textAlign:"left",fontWeight:700,
+          {cols.map((c,i)=><th key={i} scope="col" style={{padding:"10px 14px",textAlign:"left",fontWeight:700,
             fontSize:11,textTransform:"uppercase",letterSpacing:".06em",color:C.muted,
             borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{c.h}</th>)}
         </tr>
@@ -470,7 +532,7 @@ const Login=({onLogin})=>{
           <span style={{fontSize:12,color:"#FCA5A5",fontWeight:600,lineHeight:1.5}}>{err}</span>
         </div>}
 
-        <form onSubmit={submit}>
+        <form onSubmit={submit} aria-label="Sign in form">
           <div style={{marginBottom:12}}>
             <label style={{display:"block",fontSize:10,fontWeight:700,color:"#64748B",
               marginBottom:4,textTransform:"uppercase",letterSpacing:".07em"}}>Email</label>
@@ -1151,6 +1213,7 @@ const UserMaster=()=>{
       let auth_id=editing?.auth_id||null;
       if(!editing){
         // Create auth user via Supabase
+        if(!sbAdmin){throw new Error("Admin operations require server-side configuration. Contact your system administrator.");}
         const {data:au,error:ae}=await sbAdmin.auth.admin.createUser({
           email:form.email.trim(),password:form.password,email_confirm:true
         });
@@ -1210,6 +1273,7 @@ const UserMaster=()=>{
   const resetPassword=async()=>{
     if(!newPass||newPass.length<6){show("Min 6 characters","error");return;}
     if(!editing?.auth_id){show("User has no auth account linked","error");return;}
+    if(!sbAdmin){show("Admin operations require server-side configuration","error");setSaving(false);return;}
     setSaving(true);
     try{
       const {error}=await sbAdmin.auth.admin.updateUserById(editing.auth_id,{password:newPass});
@@ -1226,6 +1290,7 @@ const UserMaster=()=>{
     if(!newEmail.trim()){setEmailErr("Email is required");return;}
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail.trim())){setEmailErr("Enter a valid email");return;}
     if(!editing?.auth_id){show("User has no auth account linked","error");return;}
+    if(!sbAdmin){show("Admin operations require server-side configuration","error");setSaving(false);return;}
     setSaving(true);
     try{
       // Update in Supabase Auth (service_role bypasses confirmation)
@@ -4142,37 +4207,49 @@ const MyProfile = ({user, open, onClose, onUpdate}) => {
   </div>;
 };
 const ServiceKeySetup = ({onSave}) => {
-  const [key,setKey]=React.useState(window.__SUPABASE_SERVICE_KEY__||"");
+  const [key,setKey]=React.useState(SERVICE_KEY||"");
+  const [saved,setSaved]=React.useState(HAS_ADMIN);
   const save=()=>{
     if(!key.trim()||!key.includes(".")){alert("Paste the full service_role JWT key from Supabase Settings API page");return;}
-    window.__SUPABASE_SERVICE_KEY__=key.trim();
+    // Update the config at runtime (for this session only)
+    if(!window.__SITEOS_CONFIG__)window.__SITEOS_CONFIG__={};
+    window.__SITEOS_CONFIG__.SUPABASE_SERVICE_KEY=key.trim();
+    setSaved(true);
     if(onSave) onSave();
-    alert("Service key saved! User creation is now active.");
+    alert("Service key saved for this session! Reload the page to activate user creation.");
   };
+  if(saved) return <div style={{maxWidth:560}}>
+    <div style={{background:"#DCFCE7",border:"1px solid #86EFAC",borderRadius:12,padding:"16px 20px"}}>
+      <p style={{margin:0,fontWeight:800,fontSize:14,color:"#166534"}}>✓ Service Key Configured</p>
+      <p style={{margin:"6px 0 0",fontSize:12,color:"#166534",lineHeight:1.6}}>
+        Admin operations (user creation, password reset, email change) are active.<br/>
+        The key is loaded from <code>config.js</code>. To change it, edit that file and reload.
+      </p>
+    </div>
+  </div>;
   return <div style={{maxWidth:560}}>
     <div style={{background:"#FEF3C7",border:"1px solid #FCD34D",borderRadius:12,
       padding:"16px 20px",marginBottom:20}}>
       <p style={{margin:0,fontWeight:800,fontSize:14,color:"#92400E"}}>Service Role Key Required for User Creation</p>
       <p style={{margin:"6px 0 0",fontSize:12,color:"#92400E",lineHeight:1.6}}>
-        Needed once per session to create login accounts. Stored in browser memory only — re-enter after page refresh.
+        Needed to create login accounts. Add it to <code>config.js</code> for persistence, or paste below for this session only.
       </p>
     </div>
     <ol style={{fontSize:13,color:C.muted,lineHeight:2.2,paddingLeft:20,marginBottom:20}}>
       <li>Go to <b>supabase.com</b> and open your project</li>
       <li>Click <b>Settings (gear icon) then API</b></li>
       <li>Under <b>Project API keys</b>, copy the <b>service_role</b> key (long JWT)</li>
-      <li>Paste below and click Save</li>
+      <li>Paste below and click Save, or add it to <code>config.js</code></li>
     </ol>
     <div style={{marginBottom:14}}>
       <label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>service_role Key</label>
-      <input id="service_role_key" name="mengram_key" value={key} onChange={e=>setKey(e.target.value)}
+      <input id="service_role_key" name="service_key" value={key} onChange={e=>setKey(e.target.value)}
         placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
         style={{width:"100%",padding:"10px 12px",border:"1.5px solid #E2E8F0",
           borderRadius:8,fontSize:12,fontFamily:"monospace",color:"#0F172A",background:"#fff",outline:"none"}}/>
     </div>
-    {window.__SUPABASE_SERVICE_KEY__&&<p style={{fontSize:12,color:"#16A34A",marginBottom:10,fontWeight:700}}>Key is set — user creation is active</p>}
     <Btn onClick={save}>Save Key for This Session</Btn>
-    <p style={{marginTop:10,fontSize:11,color:"#94A3B8"}}>This key never leaves your browser and is not stored permanently.</p>
+    <p style={{marginTop:10,fontSize:11,color:"#94A3B8"}}>For permanent setup, add the key to config.js and reload.</p>
   </div>;
 };
 
@@ -9673,7 +9750,7 @@ function App(){
         </div>
       </div>
 
-      <div style={{flex:1,overflowY:"auto",padding:"6px 6px"}}>
+      <nav aria-label="Main navigation" style={{flex:1,overflowY:"auto",padding:"6px 6px"}}>
         {/* Top-level items (Dashboard, Approvals) */}
         {visibleNav.filter(n=>!n.group).map(item=><NavItem key={item.id} item={item}/>)}
 
@@ -9707,7 +9784,7 @@ function App(){
             </div>}
           </div>;
         })}
-      </div>
+      </nav>
 
       {/* User footer — with site selector */}
       <div style={{padding:"10px 12px",borderTop:"1px solid #1E293B",flexShrink:0}}>
@@ -9825,9 +9902,9 @@ function App(){
               </button>
             </div>}
           </div>
-          <div style={{flex:1,overflowY:"auto",padding:isMob?14:22}}>
+          <main id="main-content" role="main" style={{flex:1,overflowY:"auto",padding:isMob?14:22}}>
             <Comp/>
-          </div>
+          </main>
         </div>
       </div>
 
@@ -9835,7 +9912,7 @@ function App(){
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><App/></ErrorBoundary>);
 </script>
 <script>
 // Register service worker only when hosted (not in Claude preview or local file)
