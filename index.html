@@ -1733,7 +1733,7 @@ const WorkerMaster=()=>{
     const cachedBl=cacheGet("buildings");
     const [w,s,st,m,bl]=await Promise.all([
       // Workers: Only fetch columns needed for list view (saves ~70% egress vs SELECT *)
-      fetchAll(sb.from("workers").select("id,worker_code,worker_name,trade,status,per_day_rate,current_site_id,current_store_id,building_id,date_joined,gtv_date,gtv_promise_date,mobile,aadhaar_number,father_name,entry_status,is_active,worker_type,sites(site_name)").order("worker_name")),
+      fetchAll(sb.from("workers").select("id,worker_code,worker_name,trade,status,per_day_rate,current_site_id,current_store_id,building_id,date_joined,gtv_date,gtv_promise_date,mobile,aadhaar_number,father_name,entry_status,is_active,worker_type,worker_photo_url,aadhaar_photo_url,pan_photo_url,bank_photo_url,sites(site_name)").order("worker_name")),
       cachedSites||sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name").then(r=>r.data||[]),
       cachedStores||sb.from("stores").select("store_id,store_name,site_id").eq("is_active",true).then(r=>r.data||[]),
       cachedMats||sb.from("materials").select("material_id,material_name,unit").eq("is_active",true).order("material_name").then(r=>r.data||[]),
@@ -5316,7 +5316,7 @@ const LabourEntry=()=>{
     const cachedStores2=cacheGet("stores");
     const cachedBl2=cacheGet("buildings");
     const [w,s,st,bl]=await Promise.all([
-      fetchAll((()=>{let wq=sb.from("workers").select("id,worker_code,worker_name,trade,status,per_day_rate,current_site_id,current_store_id,building_id,date_joined,gtv_date,mobile,aadhaar_number,father_name,entry_status,is_active,worker_type,created_at,sites(site_name)").eq("is_active",true);if(!isUnrestricted&&assignedSiteIds.length>0){wq=wq.in("current_site_id",assignedSiteIds);}return wq.order("created_at",{ascending:false});})()),
+      fetchAll((()=>{let wq=sb.from("workers").select("id,worker_code,worker_name,trade,status,per_day_rate,current_site_id,current_store_id,building_id,date_joined,gtv_date,mobile,aadhaar_number,father_name,entry_status,is_active,worker_type,created_at,worker_photo_url,aadhaar_photo_url,pan_photo_url,bank_photo_url,sites(site_name)").eq("is_active",true);if(!isUnrestricted&&assignedSiteIds.length>0){wq=wq.in("current_site_id",assignedSiteIds);}return wq.order("created_at",{ascending:false});})()),
       cachedSites2||sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name").then(r=>r.data||[]),
       cachedStores2||sb.from("stores").select("store_id,store_name,site_id").eq("is_active",true).then(r=>r.data||[]),
       cachedBl2||sb.from("buildings").select("id,building_name,building_code,site_id").eq("is_active",true).then(r=>r.data||[]),
