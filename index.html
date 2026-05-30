@@ -33,16 +33,9 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<!-- Load config (contains Supabase credentials) — see config.example.js -->
-<script>
-// Try to load config.js; if it fails, app will use empty defaults and show setup instructions
-(function(){
-  const s=document.createElement('script');
-  s.src='config.js';s.async=false;
-  s.onerror=function(){console.warn('SiteOS: config.js not found. Copy config.example.js to config.js and add your credentials.');};
-  document.head.appendChild(s);
-})();
-</script>
+<!-- Config: Supabase credentials loaded from external file (gitignored) -->
+<!-- Copy config.example.js → config.js and fill in your credentials -->
+<script src="config.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#F1F5F9;color:#0F172A}
@@ -4214,37 +4207,49 @@ const MyProfile = ({user, open, onClose, onUpdate}) => {
   </div>;
 };
 const ServiceKeySetup = ({onSave}) => {
-  const [key,setKey]=React.useState(window.__SUPABASE_SERVICE_KEY__||"");
+  const [key,setKey]=React.useState(SERVICE_KEY||"");
+  const [saved,setSaved]=React.useState(HAS_ADMIN);
   const save=()=>{
     if(!key.trim()||!key.includes(".")){alert("Paste the full service_role JWT key from Supabase Settings API page");return;}
-    window.__SUPABASE_SERVICE_KEY__=key.trim();
+    // Update the config at runtime (for this session only)
+    if(!window.__SITEOS_CONFIG__)window.__SITEOS_CONFIG__={};
+    window.__SITEOS_CONFIG__.SUPABASE_SERVICE_KEY=key.trim();
+    setSaved(true);
     if(onSave) onSave();
-    alert("Service key saved! User creation is now active.");
+    alert("Service key saved for this session! Reload the page to activate user creation.");
   };
+  if(saved) return <div style={{maxWidth:560}}>
+    <div style={{background:"#DCFCE7",border:"1px solid #86EFAC",borderRadius:12,padding:"16px 20px"}}>
+      <p style={{margin:0,fontWeight:800,fontSize:14,color:"#166534"}}>✓ Service Key Configured</p>
+      <p style={{margin:"6px 0 0",fontSize:12,color:"#166534",lineHeight:1.6}}>
+        Admin operations (user creation, password reset, email change) are active.<br/>
+        The key is loaded from <code>config.js</code>. To change it, edit that file and reload.
+      </p>
+    </div>
+  </div>;
   return <div style={{maxWidth:560}}>
     <div style={{background:"#FEF3C7",border:"1px solid #FCD34D",borderRadius:12,
       padding:"16px 20px",marginBottom:20}}>
       <p style={{margin:0,fontWeight:800,fontSize:14,color:"#92400E"}}>Service Role Key Required for User Creation</p>
       <p style={{margin:"6px 0 0",fontSize:12,color:"#92400E",lineHeight:1.6}}>
-        Needed once per session to create login accounts. Stored in browser memory only — re-enter after page refresh.
+        Needed to create login accounts. Add it to <code>config.js</code> for persistence, or paste below for this session only.
       </p>
     </div>
     <ol style={{fontSize:13,color:C.muted,lineHeight:2.2,paddingLeft:20,marginBottom:20}}>
       <li>Go to <b>supabase.com</b> and open your project</li>
       <li>Click <b>Settings (gear icon) then API</b></li>
       <li>Under <b>Project API keys</b>, copy the <b>service_role</b> key (long JWT)</li>
-      <li>Paste below and click Save</li>
+      <li>Paste below and click Save, or add it to <code>config.js</code></li>
     </ol>
     <div style={{marginBottom:14}}>
       <label style={{display:"block",fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>service_role Key</label>
-      <input id="service_role_key" name="mengram_key" value={key} onChange={e=>setKey(e.target.value)}
+      <input id="service_role_key" name="service_key" value={key} onChange={e=>setKey(e.target.value)}
         placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
         style={{width:"100%",padding:"10px 12px",border:"1.5px solid #E2E8F0",
           borderRadius:8,fontSize:12,fontFamily:"monospace",color:"#0F172A",background:"#fff",outline:"none"}}/>
     </div>
-    {window.__SUPABASE_SERVICE_KEY__&&<p style={{fontSize:12,color:"#16A34A",marginBottom:10,fontWeight:700}}>Key is set — user creation is active</p>}
     <Btn onClick={save}>Save Key for This Session</Btn>
-    <p style={{marginTop:10,fontSize:11,color:"#94A3B8"}}>This key never leaves your browser and is not stored permanently.</p>
+    <p style={{marginTop:10,fontSize:11,color:"#94A3B8"}}>For permanent setup, add the key to config.js and reload.</p>
   </div>;
 };
 
