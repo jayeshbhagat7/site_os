@@ -1733,7 +1733,7 @@ const WorkerMaster=()=>{
     const cachedBl=cacheGet("buildings");
     const [w,s,st,m,bl]=await Promise.all([
       // Workers: Only fetch columns needed for list view (saves ~70% egress vs SELECT *)
-      fetchAll(sb.from("workers").select("id,worker_code,worker_name,trade,status,per_day_rate,current_site_id,current_store_id,building_id,date_joined,gtv_date,gtv_promise_date,mobile,aadhaar_number,father_name,entry_status,is_active,worker_type,sites(site_name)").order("worker_name")),
+      fetchAll(sb.from("workers").select("id,worker_code,worker_name,trade,status,per_day_rate,current_site_id,current_store_id,building_id,date_joined,gtv_date,gtv_promise_date,mobile,aadhaar_number,father_name,entry_status,is_active,worker_type,worker_photo_url,aadhaar_photo_url,pan_photo_url,bank_photo_url,sites(site_name)").order("worker_name")),
       cachedSites||sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name").then(r=>r.data||[]),
       cachedStores||sb.from("stores").select("store_id,store_name,site_id").eq("is_active",true).then(r=>r.data||[]),
       cachedMats||sb.from("materials").select("material_id,material_name,unit").eq("is_active",true).order("material_name").then(r=>r.data||[]),
@@ -5248,21 +5248,25 @@ const LabourEntry=()=>{
     if(!pin||pin.length!==6||isNaN(pin))return;
     setPincodeLoading(true);setPincodeResults([]);
     try{
-      const res=await fetch(`https://api.postalpincode.in/pincode/${pin}`);
+      const ctrl=new AbortController();
+      const timeout=setTimeout(()=>ctrl.abort(),5000);
+      const res=await fetch(`https://api.postalpincode.in/pincode/${pin}`,{signal:ctrl.signal});
+      clearTimeout(timeout);
       const json=await res.json();
       if(json[0]?.Status==="Success"){
         const offices=json[0].PostOffice||[];
         if(offices.length>0){
-          // Auto-fill district and state from first result
           F({
             addr_district:offices[0].District||"",
             addr_state:offices[0].State||"",
             addr_pincode:pin,
           });
-          setPincodeResults(offices); // let user pick the right post office/village
+          setPincodeResults(offices);
         } else {show("No data for this pincode","warning");}
-      } else {show("Pincode not found","warning");}
-    }catch(e){show("Pincode lookup failed","warning");}
+      } else {show("Pincode not found — enter address manually","warning");}
+    }catch(e){
+      show(e.name==="AbortError"?"Pincode fetch timed out — enter address manually":"Pincode fetch failed — check internet or enter manually","warning");
+    }
     setPincodeLoading(false);
   };
   if(!hasPerm(perms,"Labour","can_view"))return <NoAccess module="Labour Entry"/>;
@@ -5312,7 +5316,7 @@ const LabourEntry=()=>{
     const cachedStores2=cacheGet("stores");
     const cachedBl2=cacheGet("buildings");
     const [w,s,st,bl]=await Promise.all([
-      fetchAll((()=>{let wq=sb.from("workers").select("id,worker_code,worker_name,trade,status,per_day_rate,current_site_id,current_store_id,building_id,date_joined,gtv_date,mobile,aadhaar_number,father_name,entry_status,is_active,worker_type,created_at,sites(site_name)").eq("is_active",true);if(!isUnrestricted&&assignedSiteIds.length>0){wq=wq.in("current_site_id",assignedSiteIds);}return wq.order("created_at",{ascending:false});})()),
+      fetchAll((()=>{let wq=sb.from("workers").select("id,worker_code,worker_name,trade,status,per_day_rate,current_site_id,current_store_id,building_id,date_joined,gtv_date,mobile,aadhaar_number,father_name,entry_status,is_active,worker_type,created_at,worker_photo_url,aadhaar_photo_url,pan_photo_url,bank_photo_url,sites(site_name)").eq("is_active",true);if(!isUnrestricted&&assignedSiteIds.length>0){wq=wq.in("current_site_id",assignedSiteIds);}return wq.order("created_at",{ascending:false});})()),
       cachedSites2||sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name").then(r=>r.data||[]),
       cachedStores2||sb.from("stores").select("store_id,store_name,site_id").eq("is_active",true).then(r=>r.data||[]),
       cachedBl2||sb.from("buildings").select("id,building_name,building_code,site_id").eq("is_active",true).then(r=>r.data||[]),
@@ -5647,6 +5651,7 @@ const LabourEntry=()=>{
     if(!form.worker_code?.trim()){show("Worker code is required to save draft","error");return;}
     if(!form.current_site_id){show("Select a site to save draft","error");return;}
     setDraftSaving(true);
+    try{
 
     // Upload any staged files (graceful — won't fail if bucket missing)
     let photo_url=form.worker_photo_url||null;
@@ -5737,6 +5742,10 @@ const LabourEntry=()=>{
     setDraftSaving(false);
     show("Draft saved ✓ — you can continue filling the form","success");
     load(); // refresh list in background
+    }catch(e){
+      setDraftSaving(false);
+      show("Draft save failed — check internet connection and try again: "+(e.message||"Network error"),"error");
+    }
   };
 
   // Submit for Approval (Storekeeper or SIC on draft)
