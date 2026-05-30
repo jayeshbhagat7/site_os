@@ -2,9 +2,6 @@
 .env
 .env.local
 
-# Configuration (contains secrets)
-config.js
-
 # OS files
 .DS_Store
 Thumbs.db

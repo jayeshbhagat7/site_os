@@ -33,8 +33,6 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<!-- Config: Supabase credentials loaded from external file (gitignored) -->
-<!-- Copy config.example.js → config.js and fill in your credentials -->
 <script src="config.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -61,19 +59,21 @@ const {useState,useEffect,useCallback,useRef,useMemo,createContext,useContext}=R
 const {createClient}=supabase;
 
 // ─── CONFIGURATION ──────────────────────────────────────────────
-// Supabase credentials — load from window config or use defaults
-// IMPORTANT: Move these to environment variables or a server-side config in production
-const SUPABASE_URL=window.__SITEOS_CONFIG__?.SUPABASE_URL||"https://nixusvqbslokiexxxtic.supabase.co";
-const SUPABASE_ANON_KEY=window.__SITEOS_CONFIG__?.SUPABASE_ANON_KEY||"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5peHVzdnFic2xva2lleHh4dGljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4ODM0NzIsImV4cCI6MjA4ODQ1OTQ3Mn0.DyFJ48Iryl5cSKB1fZbuNdcge30y0vevEKaR2UyKaLQ";
+// Supabase credentials loaded from config.js
+const SUPABASE_URL=window.__SITEOS_CONFIG__?.SUPABASE_URL||"";
+const SUPABASE_ANON_KEY=window.__SITEOS_CONFIG__?.SUPABASE_ANON_KEY||"";
+
+if(!SUPABASE_URL||!SUPABASE_ANON_KEY){
+  document.getElementById("root").innerHTML='<div style="padding:40px;text-align:center;font-family:system-ui"><h2>Configuration Missing</h2><p>config.js not found or incomplete. Check deployment.</p></div>';
+  throw new Error("SiteOS: Missing Supabase configuration");
+}
 
 const sb=createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 
 // ─── ADMIN CLIENT ───────────────────────────────────────────────
-// WARNING: The service_role key should NEVER be exposed in client-side code in production.
-// It grants full database access bypassing all RLS policies.
-// TODO: Replace with a secure server-side API (Edge Function / backend endpoint)
-// that performs admin operations (createUser, updateUserById, deleteUser).
-// For now, loaded from window config — deploy a config.js that sets this server-side.
+// The service_role key is needed for admin operations (user creation, password reset).
+// It's loaded from config.js which is committed to the repo.
+// NOTE: Keep this repo PRIVATE. If you ever make it public, rotate this key immediately.
 const SERVICE_KEY=window.__SITEOS_CONFIG__?.SUPABASE_SERVICE_KEY||"";
 const HAS_ADMIN=!!SERVICE_KEY;
 
