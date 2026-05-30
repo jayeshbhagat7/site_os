@@ -1733,7 +1733,7 @@ const WorkerMaster=()=>{
     const cachedBl=cacheGet("buildings");
     const [w,s,st,m,bl]=await Promise.all([
       // Workers: Only fetch columns needed for list view (saves ~70% egress vs SELECT *)
-      fetchAll(sb.from("workers").select("id,worker_code,worker_name,trade,status,per_day_rate,current_site_id,current_store_id,building_id,date_joined,gtv_date,gtv_promise_date,mobile,aadhaar_number,father_name,entry_status,is_active,worker_type,sites(site_name)").order("worker_name")),
+      fetchAll(sb.from("workers").select("id,worker_code,worker_name,trade,status,per_day_rate,current_site_id,current_store_id,building_id,date_joined,gtv_date,gtv_promise_date,mobile,aadhaar_number,father_name,entry_status,is_active,worker_type,worker_photo_url,aadhaar_photo_url,pan_photo_url,bank_photo_url,sites(site_name)").order("worker_name")),
       cachedSites||sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name").then(r=>r.data||[]),
       cachedStores||sb.from("stores").select("store_id,store_name,site_id").eq("is_active",true).then(r=>r.data||[]),
       cachedMats||sb.from("materials").select("material_id,material_name,unit").eq("is_active",true).order("material_name").then(r=>r.data||[]),
@@ -5316,7 +5316,7 @@ const LabourEntry=()=>{
     const cachedStores2=cacheGet("stores");
     const cachedBl2=cacheGet("buildings");
     const [w,s,st,bl]=await Promise.all([
-      fetchAll((()=>{let wq=sb.from("workers").select("id,worker_code,worker_name,trade,status,per_day_rate,current_site_id,current_store_id,building_id,date_joined,gtv_date,mobile,aadhaar_number,father_name,entry_status,is_active,worker_type,created_at,sites(site_name)").eq("is_active",true);if(!isUnrestricted&&assignedSiteIds.length>0){wq=wq.in("current_site_id",assignedSiteIds);}return wq.order("created_at",{ascending:false});})()),
+      fetchAll((()=>{let wq=sb.from("workers").select("id,worker_code,worker_name,trade,status,per_day_rate,current_site_id,current_store_id,building_id,date_joined,gtv_date,mobile,aadhaar_number,father_name,entry_status,is_active,worker_type,created_at,worker_photo_url,aadhaar_photo_url,pan_photo_url,bank_photo_url,sites(site_name)").eq("is_active",true);if(!isUnrestricted&&assignedSiteIds.length>0){wq=wq.in("current_site_id",assignedSiteIds);}return wq.order("created_at",{ascending:false});})()),
       cachedSites2||sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name").then(r=>r.data||[]),
       cachedStores2||sb.from("stores").select("store_id,store_name,site_id").eq("is_active",true).then(r=>r.data||[]),
       cachedBl2||sb.from("buildings").select("id,building_name,building_code,site_id").eq("is_active",true).then(r=>r.data||[]),
@@ -5510,7 +5510,11 @@ const LabourEntry=()=>{
     if(form._panFile)pan_url=await uploadFile(form._panFile,"pan")||pan_url;
     if(form._bankFile)bank_url=await uploadFile(form._bankFile,"bank")||bank_url;
 
-    const entry_status=form.entry_status||"draft";
+    let entry_status=form.entry_status||"draft";
+    // SIC/Admin auto-approval: new registrations or drafts saved by SIC go directly to approved
+    if(isSIC&&(entry_status==="draft"||!editWorker)){
+      entry_status="sic_approved";
+    }
     const payload={
       worker_code:(form.worker_code||"").trim(),
       worker_name:(form.worker_name||"").trim(),
@@ -5558,6 +5562,8 @@ const LabourEntry=()=>{
       minimum_wage_category:form.minimum_wage_category||"unskilled",
       status:entry_status==="sic_approved"||entry_status==="active"?"Active":"Left",
       entry_status,
+      sic_approved_by:entry_status==="sic_approved"?user.user_id:null,
+      sic_approved_at:entry_status==="sic_approved"?new Date().toISOString():null,
       worker_photo_url:photo_url,
       aadhaar_photo_url:aadhaar_url,
       pan_photo_url:pan_url,
@@ -5745,8 +5751,21 @@ const LabourEntry=()=>{
   // Submit for Approval (Storekeeper or SIC on draft)
   const submitForApproval=async(w)=>{
     if(w.entry_status!=="draft"){show("Only draft workers can be submitted","error");return;}
-    await sb.from("workers").update({entry_status:"pending_approval"}).eq("id",w.id);
-    show("Submitted for SIC approval ✓");load();
+    if(isSIC){
+      // SIC/Admin auto-approves directly
+      const {error}=await sb.from("workers").update({
+        entry_status:"sic_approved",status:"Active",
+        sic_approved_by:user.user_id,sic_approved_at:new Date().toISOString(),
+        rejection_note:null,
+      }).eq("id",w.id);
+      if(error){show("Approval failed: "+error.message,"error");return;}
+      show("Approved & activated \u2713 (SIC auto-approval)","success");
+    } else {
+      const {error}=await sb.from("workers").update({entry_status:"pending_approval"}).eq("id",w.id);
+      if(error){show("Submit failed: "+error.message,"error");return;}
+      show("Submitted for SIC approval \u2713");
+    }
+    load();
   };
 
   // Reject with note
@@ -6459,7 +6478,9 @@ const LabourEntry=()=>{
 
         <div style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:8,padding:"12px 14px",marginBottom:14}}>
           <p style={{margin:0,fontSize:12,color:"#1D4ED8",fontWeight:600}}>
-            After saving as Draft → Submit for Approval → SIC reviews and approves → Worker becomes Active.
+            {isSIC
+              ?"Registration will be saved as Active immediately (SIC auto-approval)."
+              :"After saving as Draft \u2192 Submit for Approval \u2192 SIC reviews and approves \u2192 Worker becomes Active."}
           </p>
         </div>
       </div>}
