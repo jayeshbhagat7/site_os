@@ -12,7 +12,6 @@
 <meta name="description" content="SiteOS — Construction ERP by Umiya Associates. Manage sites, workers, attendance, payroll and materials."/>
 <meta name="robots" content="noindex, nofollow"/>
 <meta http-equiv="X-Content-Type-Options" content="nosniff"/>
-<meta http-equiv="X-Frame-Options" content="DENY"/>
 <meta name="referrer" content="strict-origin-when-cross-origin"/>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231D4ED8'/><text x='50' y='68' font-size='50' font-weight='bold' text-anchor='middle' fill='white'>S</text></svg>"/>
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231D4ED8'/><text x='50' y='68' font-size='50' font-weight='bold' text-anchor='middle' fill='white'>S</text></svg>"/>
@@ -65,8 +64,6 @@ const cacheGet=(key)=>{const c=_cache[key];if(!c)return null;if(Date.now()-c.ts>
 const cacheSet=(key,data)=>{_cache[key]={data,ts:Date.now()};};
 const cacheClear=()=>{Object.keys(_cache).forEach(k=>delete _cache[k]);};
 
-const SERVICE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5peHVzdnFic2xva2lleHh4dGljIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Mjg4MzQ3MiwiZXhwIjoyMDg4NDU5NDcyfQ.wJ8psPHNvrAQSPtx0n2AL2WIsqqzWiqr78zSthRnYmI";
-window.__SUPABASE_SERVICE_KEY__=SERVICE_KEY;
 // ─── CONFIGURATION ──────────────────────────────────────────────
 // Supabase credentials loaded from config.js
 const SUPABASE_URL=window.__SITEOS_CONFIG__?.SUPABASE_URL||"";
