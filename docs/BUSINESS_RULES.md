@@ -1,8 +1,8 @@
 # SiteOS Business Rules & Standard Operating Procedures
 
-> **Version:** 1.0  
-> **Last Updated:** 2025-01-XX  
-> **Source:** Extracted from `index.html` application code  
+> **Version:** 2.0  
+> **Last Updated:** June 2026  
+> **Source:** Extracted from `index.html` + owner briefing (Jayesh Bhagat, Umiya Associates)  
 > **App:** SiteOS Construction ERP by Umiya Associates
 
 ---
@@ -10,17 +10,21 @@
 ## Table of Contents
 
 1. [Role-Based Access Control](#1-role-based-access-control)
-2. [Worker Registration Workflow](#2-worker-registration-workflow)
-3. [Worker Status Lifecycle](#3-worker-status-lifecycle)
-4. [GTV (Gone To Village) Workflow](#4-gtv-gone-to-village-workflow)
-5. [GTV Registration Module](#5-gtv-registration-module)
-6. [Attendance Rules](#6-attendance-rules)
-7. [PPE Issuance Rules](#7-ppe-issuance-rules)
-8. [Financial Rules (Payroll, Advances, Debit)](#8-financial-rules)
-9. [Approval Workflow](#9-approval-workflow)
-10. [Session & Security Rules](#10-session--security-rules)
-11. [Site Management Rules](#11-site-management-rules)
-12. [Data Privacy (DPDP Compliance)](#12-data-privacy-dpdp-compliance)
+2. [Site Setup & Work Order](#2-site-setup--work-order)
+3. [Worker Registration Workflow](#3-worker-registration-workflow)
+4. [Worker Status Lifecycle](#4-worker-status-lifecycle)
+5. [GTV (Gone To Village) Workflow](#5-gtv-gone-to-village-workflow)
+6. [GTV Registration Module](#6-gtv-registration-module)
+7. [Attendance & Haajri Rules](#7-attendance--haajri-rules)
+8. [PPE Issuance Rules](#8-ppe-issuance-rules)
+9. [Financial Rules — Kharchi, Payroll, Advances](#9-financial-rules--kharchi-payroll-advances)
+10. [Expense & Petty Cash](#10-expense--petty-cash)
+11. [Store Operations](#11-store-operations)
+12. [Approval Workflow](#12-approval-workflow)
+13. [Compliance & Statutory Requirements](#13-compliance--statutory-requirements)
+14. [Session & Security Rules](#14-session--security-rules)
+15. [Site Management Rules](#15-site-management-rules)
+16. [Data Privacy (DPDP Compliance)](#16-data-privacy-dpdp-compliance)
 
 ---
 
@@ -32,7 +36,7 @@
 |------|-------------|------------|
 | **Owner** | Full read access, all sites | All Sites (unrestricted) |
 | **Admin** | Master tables, user creation | All Sites (unrestricted) |
-| **Office** | Payroll + compliance | All Sites (unrestricted) |
+| **Office** | Payroll + compliance, HO | All Sites (unrestricted) |
 | **SIC** | Full access, assigned site(s) | Assigned Sites only |
 | **Supervisor** | Attendance + DPR, own site | Assigned Site only |
 | **Storekeeper** | Store inward/issue, own site | Assigned Site only |
@@ -84,29 +88,91 @@
 
 ---
 
-## 2. Worker Registration Workflow
+## 2. Site Setup & Work Order
 
-### 2.1 Registration Wizard (6 Steps)
+### 2.1 New Site Onboarding
+
+When a new project site is awarded:
+
+1. **Site Code** is assigned (e.g., `WWC` for Wadhwa Wise City)
+2. **Site ID** is auto-generated (SERIAL) in the `sites` table
+3. **Address** and location details are entered
+4. **Builder / Developer details** are recorded (`client_name` field)
+5. **Job ID** is set — used as prefix for worker codes at that site (e.g., `WWC-00042`)
+
+### 2.2 Work Order
+
+The formal Work Order (WO) is signed between Umiya Associates and the client/developer. It contains:
+
+| Section | Details |
+|---------|---------|
+| **Scope of Work** | Description of all work to be performed |
+| **Mode of Measurement** | How quantities are measured (sqft, running metre, etc.) |
+| **Payment Schedule** | Milestone-based or RA bill-based payment terms |
+| **Terms & Conditions** | Agreed contractual terms |
+
+- A site may be a **single building** or **multiple buildings/towers** within the same project
+- Each building/tower is tracked in the `buildings` table linked to the site
+- Work Orders are stored in the `work_orders` table (Phase 2 — Billing module)
+
+### 2.3 Labour & Supervisor Deployment
+
+- Workers and supervisors are **moved to the site** when it starts
+- Existing workers in the system are searched first (to avoid duplication)
+- If found, their record is updated with the new site assignment
+- If new, a fresh registration is done via the Labour Entry wizard
+
+---
+
+## 3. Worker Registration Workflow
+
+### 3.1 Why We Maintain Worker Data
+
+The worker database serves these purposes:
+- **Avoid duplication** — search existing records before registering a new worker
+- **Document management** — Aadhaar, PAN, bank details, photos in one place
+- **Compliance** — BOCW, MWF, PF, PT, ESIC records
+- **History** — complete work history across all sites and projects
+- **Daily wage rate** — maintained per worker, used for payroll calculation
+
+### 3.2 Documents Required at Joining
+
+| Document | Field | Mandatory |
+|----------|-------|-----------|
+| Aadhaar Card | `aadhaar_number` + `aadhaar_photo_url` | Yes |
+| PAN Card | `pan_number` + `pan_photo_url` | Yes |
+| Bank Account | `bank_account`, `bank_ifsc`, `bank_name` | Yes |
+| Photograph | `worker_photo_url` | Yes |
+| Labour Registration Form | Physical form filled at site | Yes |
+
+### 3.3 Registration Wizard (6 Steps)
 
 | Step | Name | Required Fields |
 |------|------|-----------------|
 | 1 | Site & Trade | Worker Code, Trade, Site, Date Joined |
 | 2 | Personal Details | First Name or Worker Name |
-| 3 | ID & Bank | None (optional) |
+| 3 | ID & Bank | None (optional at this step) |
 | 4 | Documents | None (upload photos) |
 | 5 | PPE Issue | None (toggle items) |
 | 6 | Review & Submit | **DPDP Consent (mandatory)** |
 
 **Component:** `LabourEntry`
 
-### 2.2 Worker Code Auto-Generation
+### 3.4 Worker Code Auto-Generation
 
 - **Format:** `{site_job_id}-{5-digit-sequence}` (e.g., `WWC-00042`)
 - If site has a `job_id`, uses that as prefix with zero-padded sequence
 - Scans existing workers with same prefix to determine next number
 - Fallback (no site job_id): `UA-{5-digit-sequence}`
 
-### 2.3 Entry Status Flow
+### 3.5 Returning Worker Rule
+
+- **Before registering a new worker, always search existing records**
+- If a worker previously worked with Umiya Associates, find their record and update it
+- Update: new site assignment, new join date, updated rate, new documents if changed
+- This preserves the full work history and avoids duplicate records
+
+### 3.6 Entry Status Flow
 
 ```
 draft --> pending_approval --> sic_approved --> active
@@ -116,7 +182,7 @@ draft --> pending_approval --> sic_approved --> active
   +--> (SIC/Admin saves) --> sic_approved (auto-approval)
 ```
 
-### 2.4 Approval Rules
+### 3.7 Approval Rules
 
 | Who Saves | Result |
 |-----------|--------|
@@ -126,38 +192,25 @@ draft --> pending_approval --> sic_approved --> active
 
 **Key rule:** SIC/Admin registrations bypass the approval queue entirely.
 
-### 2.5 SIC Approval with First Advance
+### 3.8 SIC Approval with First Advance (Kharchi)
 
 - When SIC approves a `pending_approval` worker:
   - Sets `entry_status = "sic_approved"`, `status = "Active"`
   - Records `sic_approved_by` and `sic_approved_at`
-  - Optionally sets `first_advance` amount
+  - **First Kharchi:** ₹2,500 given at joining (amount may change — stored as `first_advance`)
   - Clears any previous `rejection_note`
 
-### 2.6 Rejection & Resubmission
-
-- **WHO:** Only SIC/Admin can reject
-- **WHEN:** Worker has `entry_status = "pending_approval"`
-- **WHAT:** Sets `entry_status = "rejected"` with mandatory `rejection_note`
-- **RESUBMIT:** Storekeeper or SIC can open the rejected worker, correct issues, then resubmit
-
-### 2.7 Draft Saving
+### 3.9 Draft Saving
 
 - Available from any wizard step once `worker_code` and `current_site_id` are filled
 - Draft workers: `entry_status = "draft"`, `status = "Left"`, `is_active = true`
 - Drafts persist across sessions (saved to DB immediately)
-- New draft inserts a worker row; subsequent saves update the same row
-
-### 2.8 Job Number Auto-Fill
-
-- When site is selected in the form, `job_no` auto-fills from the site's `job_id`
-- Does not override if user has manually changed it
 
 ---
 
-## 3. Worker Status Lifecycle
+## 4. Worker Status Lifecycle
 
-### 3.1 Worker Statuses
+### 4.1 Worker Statuses
 
 | Status | Meaning | When Set |
 |--------|---------|----------|
@@ -166,7 +219,7 @@ draft --> pending_approval --> sic_approved --> active
 | **Left** | No longer employed | After 6 months GTV auto-expiry, manual mark, or draft state |
 | **Transferred** | Moved to another site | After transfer approval |
 
-### 3.2 Status Transitions
+### 4.2 Status Transitions
 
 | From | To | Trigger | Who |
 |------|-----|---------|-----|
@@ -177,26 +230,29 @@ draft --> pending_approval --> sic_approved --> active
 | GTV | Left | Manual mark left OR 6-month auto-expiry | SIC/Admin or System |
 | Left | Active | Reactivation | SIC, Admin |
 
-### 3.3 GTV Auto-Expiry (6-Month Rule)
+### 4.3 GTV Auto-Expiry (6-Month Rule)
 
-- **Checked on:** Dashboard load by SIC/Admin/Owner
 - Workers on GTV status for > 6 months are automatically moved to "Left"
 - Workers between 5 and 6 months get a warning notification on the dashboard
 - Days remaining is calculated as: `GTV date + 6 months - today`
 
-### 3.4 Worker Reactivation
-
-- Only available for workers with status "Left"
-- Requires: site assignment, valid per_day_rate
-- Optionally set: store, building, date joined
-
 ---
 
-## 4. GTV (Gone To Village) Workflow
+## 5. GTV (Gone To Village) Workflow
 
-### 4.1 Direct GTV Marking (Urgent/Unregistered)
+### 5.1 GTV Declaration Rules
 
-**Component:** `WorkerMaster` (openMarkGTV, submitMarkGTV)
+- Worker **must declare at least 30 days in advance** if going to village
+- Worker informs the **Storekeeper** first
+- Storekeeper creates a GTV entry with the intended departure date
+- Approval chain: Storekeeper entry → Supervisor → SIC → Owner
+
+### 5.2 Payment Hold Rule
+
+- If a worker leaves **without registering GTV**, the company may **hold payment for at least 1 month** to settle the account
+- This is to ensure all advances, debits, and dues are reconciled before final payment
+
+### 5.3 Direct GTV Marking (Urgent/Unregistered)
 
 **WHO:** SIC, Admin only  
 **WHEN:** Worker is Active and needs to go to village immediately  
@@ -205,14 +261,14 @@ draft --> pending_approval --> sic_approved --> active
 1. Select GTV date and optional promise date
 2. System checks for unsubmitted attendance sessions between GTV date and today
 3. If open sessions exist, user must resolve each one:
-   - **Present** - leave as-is (company owes wages for that day)
-   - **Absent** - correct attendance record to absent (haajri = 0, daily_wage = 0)
+   - **Present** — leave as-is (company owes wages for that day)
+   - **Absent** — correct attendance record to absent (haajri = 0)
 4. All sessions must be resolved before GTV can be confirmed
-5. Worker status changes: `Active` -> `GTV`
+5. Worker status changes: `Active` → `GTV`
 6. Records `gtv_date` and optional `gtv_promise_date`
 7. Logs event to `worker_history` table
 
-### 4.2 GTV Actions (Rejoin / Mark Left)
+### 5.4 GTV Actions (Rejoin / Mark Left)
 
 - **Rejoin:** Sets status back to "Active", assigns new site, clears GTV dates, optionally updates rate
 - **Mark Left:** Sets status to "Left"
@@ -220,15 +276,13 @@ draft --> pending_approval --> sic_approved --> active
 
 ---
 
-## 5. GTV Registration Module
+## 6. GTV Registration Module
 
-### 5.1 Overview
-
-**Component:** `GTVRegistration`
+### 6.1 Overview
 
 A formal advance-notice system for planned village visits. Requires approval chain before worker can officially go on GTV.
 
-### 5.2 Registration Rules
+### 6.2 Registration Rules
 
 | Rule | Detail |
 |------|--------|
@@ -237,7 +291,7 @@ A formal advance-notice system for planned village visits. Requires approval cha
 | Eligible workers | Active workers at assigned site, not already registered for same month |
 | Month selection | Next 1 to 4 months from current date |
 
-### 5.3 Trade Caps (Company-Wide Per Month)
+### 6.3 Trade Caps (Company-Wide Per Month)
 
 | Trade Group | Cap | Scope |
 |-------------|-----|-------|
@@ -246,9 +300,7 @@ A formal advance-notice system for planned village visits. Requires approval cha
 | M/C + BRM + PLM (combined) | Max 10 workers | Company-wide per GTV month |
 | All other trades | No cap | Unlimited |
 
-Cap is checked against approved + pending registrations for that month across all sites.
-
-### 5.4 Approval Chain
+### 6.4 Approval Chain
 
 ```
 pending_supervisor --> pending_sic --> pending_owner --> approved
@@ -258,45 +310,75 @@ pending_supervisor --> pending_sic --> pending_owner --> approved
 
 | Level | Approver | What They See |
 |-------|----------|---------------|
-| 1. Trade Supervisor | Carpenter Supervisor, Fitter Supervisor, or Labour Supervisor | Only their trade's registrations |
+| 1. Trade Supervisor | Carpenter/Fitter/Labour Supervisor | Only their trade's registrations |
 | 2. SIC | SIC or Admin | All pending_sic registrations (site-scoped) |
 | 3. Owner | Owner | All pending_owner registrations |
 
-### 5.5 Supervisor Trade Mapping
-
-| Worker Trade | Supervisor Role |
-|-------------|-----------------|
-| Carpenter | Carpenter Supervisor |
-| Fitter | Fitter Supervisor |
-| M/C, BRM, PLM | Labour Supervisor |
-| All others | Skip supervisor, go directly to SIC |
-
-### 5.6 Rejection
-
-- Rejection reason is mandatory
-- Optional `payment_hold` flag can be set on rejection
-- Rejected registrations can be re-registered
-
 ---
 
-## 6. Attendance Rules
+## 7. Attendance & Haajri Rules
 
-### 6.1 Session Model
+### 7.1 What is Haajri
 
-**Component:** `Attendance`
+Haajri is the wage unit for a day's work. A worker may receive **3 to 5 haajri per day** depending on the work done:
+
+| Haajri Value | Meaning |
+|-------------|---------|
+| 0 | Absent |
+| 0.5 | Half day |
+| 1.0 | Full day (default) |
+| 1.5 | Overtime (1.5x) |
+| 2.0 | Double shift |
+| 3.0–5.0 | Piece-rate / task-based (supervisor discretion) |
+
+**Daily wage calculation:** `Haajri × Per Day Rate`
+
+### 7.2 Piece-Rate / Task-Based Haajri
+
+- If a supervisor assigns a **part of work to a group of workers**, upon completion:
+  - Supervisor calculates the haajri for each worker based on work done
+  - Distributes and writes haajri in their individual cards
+  - This haajri is then entered into the system
+- Haajri values above 1.0 are valid and represent extra work/overtime
+
+### 7.3 Monthly Salary Calculation
+
+```
+Monthly Salary = Sum of all daily Haajri × Per Day Rate
+```
+
+- Calculated at month end
+- The total haajri for the month is summed from all attendance records
+- Multiplied by the worker's `per_day_rate`
+- Result is the gross salary before deductions
+
+### 7.4 Session Model
 
 | Field | Description |
 |-------|-------------|
 | `att_date` | Attendance date |
 | `site_id` | Site for the session |
-| `status` | draft -> submitted -> locked |
+| `status` | draft → submitted → locked |
 | `submitted_by` | Who submitted |
 | `locked_by` | Who locked (SIC) |
 
 - One session per site per date
 - If no session exists for site+date, one is auto-created as "draft"
 
-### 6.2 Session Status Flow
+### 7.5 Building-Wise Allocation
+
+- If a site has **multiple buildings/towers**, workers must be allocated building-wise when marking attendance
+- This is done in the `attendance_building_assignments` table
+- Allocation is required for cost tracking per building
+- Workers can be split across buildings in a single day
+
+### 7.6 Absent Worker Rule
+
+- **An absent worker's haajri for that day CANNOT be entered on that day**
+- Once marked absent and saved, the record is locked for the Storekeeper
+- Only SIC can correct an absent mark (with mandatory correction note)
+
+### 7.7 Session Status Flow
 
 ```
 draft --> submitted --> locked
@@ -304,78 +386,32 @@ draft --> submitted --> locked
 
 | Transition | Who | Action |
 |-----------|-----|--------|
-| draft -> submitted | SK, SIC, or anyone with `can_add` Attendance | Submit button |
-| submitted -> locked | **SIC only** | Lock button |
+| draft → submitted | SK, SIC, or anyone with `can_add` Attendance | Submit button |
+| submitted → locked | **SIC only** | Lock button |
 
-### 6.3 Default Attendance
+### 7.8 Default Attendance
 
 - **All workers are PRESENT by default** (haajri = 1.0)
 - Marking absent is the exception action
-- Present workers get default haajri of 1.0 (full day)
 
-### 6.4 Haajri (Wage Units)
+### 7.9 Storekeeper Lock Rule
 
-| Value | Meaning |
-|-------|---------|
-| 0 | Absent |
-| 0.5 | Half day |
-| 1.0 | Full day (default) |
-| 1.5 | Overtime (1.5x) |
-| 2.0 | Double shift |
-
-**Daily wage calculation:** `Haajri x Per Day Rate`
-
-### 6.5 Storekeeper Lock Rule (SK Lock)
-
-- **Storekeeper CANNOT change Absent -> Present** on a saved (non-new) record
+- **Storekeeper CANNOT change Absent → Present** on a saved record
 - Once a worker is marked absent and saved, only SIC can correct it
 - Error message: "Absent mark is saved. Request SIC to correct."
-- Visual indicator: "LOCKED" label on the record
 
-### 6.6 Session Lock Rule
+### 7.10 SIC Corrections
 
-- If session status = "locked" and user is NOT SIC: all edits blocked
-- Error: "Session locked -- SIC correction required"
-
-### 6.7 Haajri Entry Permissions
-
-| Role | Can Enter Haajri? | Constraints |
-|------|-------------------|-------------|
-| Storekeeper | Yes | Cannot edit absent worker haajri |
-| Supervisor | Yes | Once saved, only SIC can re-edit |
-| SIC / Admin | Yes | Full edit always |
-
-### 6.8 Trade Supervisor Filtering
-
-- Trade-specific supervisors (e.g., "Carpenter Supervisor") only see workers of their trade
-- The trade is extracted from the role name: "Carpenter Supervisor" -> filters to "Carpenter"
-- Generic "Supervisor" role sees all workers
-
-### 6.9 SIC Corrections
-
-**Single Correction:**
-- SIC can flip Present <-> Absent on any saved record
+- SIC can flip Present ↔ Absent on any saved record
 - Requires mandatory `correction_note`
 - Records `corrected_by`, `corrected_at`
 - Corrected records show "CORR" indicator
 
-**Bulk Correction:**
-- SIC can select a date + site and load all absent workers
-- Select multiple workers and correct to Present with a note
-- Refreshes current session if same date/site
-
-### 6.10 Bulk Mark Absent
-
-- Available to users with `can_add` Attendance permission
-- Select multiple present workers via checkboxes
-- Cannot bulk-select workers that are already absent or SK-locked
-- Confirm marks all selected as absent (haajri = 0)
-
 ---
 
-## 7. PPE Issuance Rules
+## 8. PPE Issuance Rules
 
-### 7.1 PPE Items
+### 8.1 PPE Items
 
 | Item | Field | Tracked |
 |------|-------|---------|
@@ -383,82 +419,159 @@ draft --> submitted --> locked
 | Safety Belt | `belt_issued` | Yes/No + issue date |
 | Gumboot | `gumboot_issued` | Yes/No + issue date |
 
-### 7.2 Issuance Process (Registration Wizard Step 5)
+### 8.2 Issuance Process
 
-- PPE items are toggled during registration
+- PPE items are toggled during registration (Step 5)
 - `issued_by` records who issued the PPE
 - `worker_confirmed` tracks worker acknowledgment
-- PPE data stored in `worker_ppe` table (source of truth)
+- PPE data stored in `worker_ppe` table
 
-### 7.3 Stock Deduction Rules
+### 8.3 Stock Deduction Rules
 
 - **Only newly issued items are deducted** from store stock
-- Comparison: `nowIssued && !wasIssued` (current toggle vs previous state in `worker_ppe`)
+- Comparison: `nowIssued && !wasIssued` (current toggle vs previous state)
 - Re-editing a worker who already has PPE issued does NOT double-deduct
-- Deduction looks up material by name (ilike match) in `materials` table
-
-### 7.4 PPE Log
-
-- Each new issuance creates a record in `worker_ppe_log`
-- Log fields: `worker_id`, `site_id`, `ppe_item`, `action` ("issued"), `action_date`, `notes`, `done_by`
-- Action date defaults to worker's `date_joined`
 
 ---
 
-## 8. Financial Rules
+## 9. Financial Rules — Kharchi, Payroll, Advances
 
-### 8.1 First Advance
+### 9.1 Kharchi (Advance Payment)
 
-- Given at time of SIC approval (optional)
-- Stored in `first_advance` field on worker record
-- Amount set by SIC during the approval modal
-- Leaving as 0 means no advance given
+Kharchi is the advance cash given to workers for daily expenses:
 
-### 8.2 Labour Advances
+| Rule | Detail |
+|------|--------|
+| **Joining Kharchi** | ₹2,500 given when worker joins (amount may change in future) |
+| **Regular Kharchi** | Given at intervals: **10th, 20th, and 2nd of each month** |
+| **Mode** | Bank transfer (to worker's registered bank account) |
+| **Recording** | Recorded as `labour_advances` in the system |
 
-- Recorded per worker per site
-- Fields: `worker_id`, `site_id`, `amount`, `payment_date`, `mode_type` (cash/bank), `wallet_id`
-- Mode types: cash, bank
-- If mode is cash, optionally linked to a `cash_wallet`
+### 9.2 Kharchi Deduction from Salary
 
-### 8.3 Cash Wallets
+- All kharchi given during the month is deducted from the monthly salary
+- `Net Payable = Gross Wages - Total Kharchi/Advances + Carry Forward`
+- If advances exceed earnings, the excess is carried forward to next month
 
-- Named cash holders (petty cash wallets) tracked in `cash_wallets` table
-- Each wallet has `person_name` and `current_balance`
-- Used for recording cash advance payments
+### 9.3 Payroll Calculation
 
-### 8.4 Debit Voucher (Debit Rate)
-
-- **WHO:** Any user with edit permission in Workers module
-- **WHAT:** Records material issued to a worker to be deducted from salary
-- **PROCESS:**
-  1. Select material, quantity, optional salary_month, reason
-  2. Creates record in `worker_debit_log` with status "pending_approval"
-  3. Creates corresponding entry in `approvals` table (type: "debit_rate", approver: SIC)
-  4. SIC reviews and sets the debit rate (price per unit)
-  5. On approval: `debit_amount = approved_rate x quantity`
-
-### 8.5 Payroll Calculation
-
-- **Gross Wages:** `days_present x per_day_rate` (days_present = sum of haajri for date range)
+- **Gross Wages:** `days_present × per_day_rate` (days_present = sum of haajri for date range)
 - **Net Payable:** `gross_wages - advances_deducted + carry_forward_in`
-- **Carry Forward:** `max(0, advances - gross - carry_forward_in)` (when advances exceed earnings)
+- **Carry Forward:** `max(0, advances - gross - carry_forward_in)`
 - Carry forward from last paid run is brought into next calculation
 
-### 8.6 Payroll Run Status
+### 9.4 Salary Processing
+
+1. Payroll is calculated in SiteOS (Payroll module)
+2. The **final list of all worker salaries is forwarded to Head Office**
+3. HO applies statutory compliance calculations (BOCW, MWF, PF, PT, ESIC)
+4. Final salary is processed via **bank transfer** to each worker's account
+
+### 9.5 Payroll Run Status
 
 ```
 draft --> paid (irreversible)
 ```
 
 - "Mark as Paid" requires confirmation and cannot be undone
-- Updates both `payroll_runs` and all `payroll_entries` for that run
 
 ---
 
-## 9. Approval Workflow
+## 10. Expense & Petty Cash
 
-### 9.1 Approval Types
+### 10.1 Petty Cash Flow
+
+```
+Owner → gives cash to SIC → SIC gives to Storekeeper → Storekeeper spends
+```
+
+- **Owner** provides petty cash to the SIC for site operations
+- **SIC** distributes to Storekeeper as needed for day-to-day expenses
+- **Storekeeper** records each expense against the petty cash balance
+- Each person has a **Cash Wallet** in the system tracking their balance
+
+### 10.2 Expense Categories
+
+| Category | Code |
+|----------|------|
+| Hardware | H/W |
+| Stationary | Stationary |
+| Labour Salary | Labour Salary |
+| Fuel | Fuel |
+| Repairing | Repairing |
+| Transportation | Transportation |
+| Travelling | Travelling |
+| Medical | Medical |
+| Other | Other |
+
+### 10.3 Current Process (Being Replaced)
+
+- Currently each user records expenses in **Google Sheets**
+- The final account list is forwarded to **Head Office every month**
+- SiteOS Expense module replaces this Google Sheets process
+
+### 10.4 Expense Recording Rules
+
+- Each expense is recorded with: date, category, amount, description, paid from wallet
+- Wallet balance is debited when expense is recorded
+- Reference number (bill/invoice/voucher) can be attached
+- Expenses above a threshold may require SIC approval
+
+### 10.5 Wallet Top-Up
+
+- Owner sends cash to SIC wallet → recorded as `wallet_topup`
+- SIC sends cash to Storekeeper wallet → recorded as `wallet_transaction`
+- All movements are traceable in the transaction ledger
+
+### 10.6 Monthly Reporting
+
+- Monthly expense summary is generated per site
+- Forwarded to HO for accounts reconciliation
+- Replaces the current Google Sheets monthly submission
+
+---
+
+## 11. Store Operations
+
+### 11.1 Inward Register (GRN)
+
+- All material received at site is entered in the **Inward Register**
+- Each entry gets a **Register Number** (auto: `GRN/YYYY/NNN`)
+- The respective **Material Ledger** is updated with the register number and material details
+
+### 11.2 Material Types
+
+| Type | Description |
+|------|-------------|
+| **Purchased** | Material bought via PO from vendor |
+| **FOC (Free of Cost)** | Material provided by client at no charge |
+| **Returnable** | Client material that must be returned (e.g., formwork) |
+| **Non-Returnable** | Client material consumed at site |
+
+### 11.3 FOC Material Rules
+
+- FOC material from client is tracked separately
+- **Returnable FOC:** Reconciliation record must be prepared and submitted when asked
+- **Non-Returnable FOC:** Consumed at site, recorded in ledger for compliance
+- Reconciliation reports are generated from the stock ledger
+
+### 11.4 Store Operations Flow
+
+```
+Material Requisition → Purchase Order → GRN (Inward) → Stock Ledger → Material Issue
+```
+
+### 11.5 Material Issue
+
+- Material issued from store to site/wing is recorded in `material_issues`
+- Issue number auto-generated: `ISS/YYYY/NNN`
+- Stock ledger is updated on issue
+
+---
+
+## 12. Approval Workflow
+
+### 12.1 Approval Types
 
 | Type | Description | Approver Role |
 |------|-------------|---------------|
@@ -466,16 +579,18 @@ draft --> paid (irreversible)
 | `worker_transfer` | Transfer worker between sites | SIC |
 | `material_request` | Request materials | SIC |
 | `salary_submission` | Salary submission for payment | Office |
+| `gtv_registration` | GTV advance notice | Supervisor → SIC → Owner |
 
-### 9.2 Who Can Approve
+### 12.2 Who Can Approve
 
 | User Role | Can Approve |
 |-----------|-------------|
 | Admin | All approval types |
 | SIC | Approvals where `approver_role = "SIC"` (site-scoped) |
 | Office | Approvals where `approver_role = "Office"` |
+| Owner | GTV final approval |
 
-### 9.3 Approval Side Effects
+### 12.3 Approval Side Effects
 
 **Worker Transfer (on approve):**
 - Worker's `current_site_id` updated to destination site
@@ -486,99 +601,98 @@ draft --> paid (irreversible)
 - `worker_debit_log` updated with `debit_rate` and calculated `debit_amount`
 - Status set to "approved"
 
-### 9.4 Rejection
+---
 
-- Mandatory rejection note/reason
-- Status set to "rejected" with `rejection_note` stored
+## 13. Compliance & Statutory Requirements
+
+### 13.1 Applicable Regulations
+
+All workers in the construction industry are subject to:
+
+| Regulation | Full Name | Applicability |
+|-----------|-----------|---------------|
+| **BOCW** | Building & Other Construction Workers Act | All construction workers |
+| **MWF** | Maharashtra Workers' Welfare Fund | Maharashtra sites |
+| **PF** | Provident Fund (EPF) | Workers earning above threshold |
+| **PT** | Professional Tax | Maharashtra |
+| **ESIC** | Employees' State Insurance | Workers earning ≤ ₹21,000/month |
+
+### 13.2 Compliance Data Maintained
+
+- Worker's `esic_eligible` flag (boolean)
+- Worker's `esic_ip_number` (ESIC IP number)
+- Worker's `pf_uan_number` (PF UAN)
+- Worker's `pan_number` (for TDS if applicable)
+
+### 13.3 Salary Submission to HO
+
+1. SiteOS generates the payroll run (gross wages per worker)
+2. List is forwarded to Head Office
+3. HO applies BOCW, MWF, PF, PT, ESIC deductions as applicable
+4. Final net salary is processed via bank transfer
+5. Compliance returns are filed by HO
 
 ---
 
-## 10. Session & Security Rules
+## 14. Session & Security Rules
 
-### 10.1 Idle Session Timeout
+### 14.1 Idle Session Timeout
 
 - **Duration:** 30 minutes of inactivity
 - **Events that reset timer:** mousemove, mousedown, keydown, touchstart, scroll, click
-- **On expiry:** Auto signs out via `sb.auth.signOut()`, shows alert, returns to login
+- **On expiry:** Auto signs out, shows alert, returns to login
 - Timer starts immediately on login
 
-### 10.2 Login Requirements
+### 14.2 Login Requirements
 
 - Email + password authentication via Supabase Auth
 - User must have a profile in `app_users` table linked by `auth_id`
-- User must have `is_active = true` (deactivated accounts are blocked)
-- Error: "User profile not found" if `app_users` record missing
-- Error: "Account deactivated" if `is_active = false`
+- User must have `is_active = true`
+- Login lockout: 5 failed attempts → 15-minute lock
 
-### 10.3 Data Caching
+### 14.3 Data Caching
 
-- Query results cached for 2 minutes (`_cache` with 120000ms TTL)
+- Query results cached for 2 minutes to reduce Supabase egress
 - Cache cleared on logout
-- Reduces Supabase egress for repeated navigation
-
-### 10.4 Photo Upload Security
-
-- Worker document photos uploaded via `sbAdmin` (service role client) to bypass RLS on storage bucket
-- Fallback: Base64 encoding for photos under 300KB if storage fails
-- Bucket: "worker-docs"
 
 ---
 
-## 11. Site Management Rules
+## 15. Site Management Rules
 
-### 11.1 Site Deactivation Guards
+### 15.1 Site Deactivation Guards
 
 - **WHO:** Only Owner/Admin can deactivate a site
 - **GUARD:** Cannot deactivate if active workers remain assigned
-- Error: "Cannot deactivate: X active worker(s) still assigned. Transfer or mark them as GTV first."
+- Error: "Cannot deactivate: X active worker(s) still assigned."
 - All active workers must be moved (transfer, GTV, or left) before site can be deactivated
 
-### 11.2 Worker Transfer
+### 15.2 Worker Transfer
 
 - Transfer request creates an approval entry (type: "worker_transfer", approver: SIC)
-- Also creates record in `worker_transfers` table with the approval_id
 - Cannot transfer to same site
-- Transfer type: "permanent" (default)
 - On approval: worker's site changes, store cleared, status remains Active
 
 ---
 
-## 12. Data Privacy (DPDP Compliance)
+## 16. Data Privacy (DPDP Compliance)
 
-### 12.1 Consent Requirement
+### 16.1 Consent Requirement
 
 - **MANDATORY** on Step 6 (Review & Submit) of registration wizard
 - The `consent_given` checkbox MUST be checked before final save is allowed
-- `stepValid()` for step 6 returns `!!form.consent_given`
 
-### 12.2 Consent Text
+### 16.2 Consent Text
 
 > "I confirm that the worker has been informed about and has verbally consented to the collection and storage of their personal data (name, Aadhaar, PAN, bank details, photograph, attendance records) for employment and statutory compliance purposes by Umiya Associates, as required under the Digital Personal Data Protection Act 2023."
 
-### 12.3 Consent Recording
+### 16.3 Consent Recording
 
 - `consent_given`: boolean flag
 - `consent_date`: date when consent was recorded (auto-set to today)
-- Recorded by: current user's name displayed in UI
 
 ---
 
-## Appendix: Print/ID Card Eligibility
-
-### Print Form (Official Registration Form)
-
-- **Available when:** `entry_status === "sic_approved"` OR `entry_status === "active"`
-- Shows full worker details with PPE status loaded from `worker_ppe` table
-- Error if worker not yet approved: "Official form is only available after SIC approval"
-
-### ID Card
-
-- **Available when:** `entry_status === "sic_approved"` OR `entry_status === "active"`
-- Only shows action button for approved workers
-
----
-
-## Appendix: Key Component Reference
+## Appendix A: Key Component Reference
 
 | Component | Purpose |
 |-----------|---------|
@@ -589,5 +703,20 @@ draft --> paid (irreversible)
 | `Approvals` | Central approval queue for transfers, debits, materials |
 | `PolicyMaster` | Role permission matrix management |
 | `PayrollModule` | Wage calculation, advances, payroll runs |
+| `ExpenseModule` | Petty cash recording, wallet top-ups, monthly summary |
 | `SiteMaster` | Site CRUD with deactivation guards |
 | `App` | Auth context, idle timeout, navigation routing |
+
+## Appendix B: Phase 2 Build Order
+
+| Priority | Module | Trigger | Status |
+|----------|--------|---------|--------|
+| 1 | Payroll | Salary calc still manual | ✅ Built |
+| 2 | Expense & Petty Cash | Google Sheets still in use | 🔨 Building |
+| 3 | Inward Register (GRN) | Paper challan register in use | ⏳ |
+| 4 | Material Issue | Issues not tracked digitally | ⏳ |
+| 5 | Stock Ledger | No real-time stock visibility | ⏳ |
+| 6 | Procurement / PO | POs raised manually | ⏳ |
+| 7 | Work Orders | WOs written on paper | ⏳ |
+| 8 | RA Bills | RA bill calc still manual | ⏳ |
+| 9 | Reports | Management asks for summary | ⏳ |
