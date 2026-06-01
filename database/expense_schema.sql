@@ -10,10 +10,13 @@ CREATE TABLE IF NOT EXISTS public.expense_categories (
   name          TEXT NOT NULL,
   display_name  TEXT NOT NULL,
   is_active     BOOLEAN DEFAULT true,
-  tenant_id     UUID REFERENCES public.tenants(tenant_id),
+  tenant_id     UUID,  -- nullable: categories are global across tenants
   created_at    TIMESTAMPTZ DEFAULT now()
 );
 ALTER TABLE public.expense_categories DISABLE ROW LEVEL SECURITY;
+
+-- Drop NOT NULL on tenant_id if it was previously created with constraint
+ALTER TABLE public.expense_categories ALTER COLUMN tenant_id DROP NOT NULL;
 
 -- Seed default categories (matches uauat site_expense_category)
 INSERT INTO public.expense_categories (name, display_name) VALUES
