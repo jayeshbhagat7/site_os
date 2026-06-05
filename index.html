@@ -16,6 +16,7 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231D4ED8'/><text x='50' y='68' font-size='50' font-weight='bold' text-anchor='middle' fill='white'>S</text></svg>"/>
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231D4ED8'/><text x='50' y='68' font-size='50' font-weight='bold' text-anchor='middle' fill='white'>S</text></svg>"/>
 <title>SiteOS â€” Construction ERP</title>
+<!-- Source of truth for app behavior and build rules: docs/BUSINESS_RULES.md -->
 <script>
 // Inject manifest only when hosted (not file:// or Claude preview)
 (function(){
@@ -62,6 +63,7 @@ const {createClient}=supabase;
 const _cache={};
 const cacheGet=(key)=>{const c=_cache[key];if(!c)return null;if(Date.now()-c.ts>120000){delete _cache[key];return null;}return c.data;};
 const cacheSet=(key,data)=>{_cache[key]={data,ts:Date.now()};};
+const cacheDel=(key)=>{delete _cache[key];};
 const cacheClear=()=>{Object.keys(_cache).forEach(k=>delete _cache[k]);};
 
 // â”€â”€â”€ CONFIGURATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1727,18 +1729,22 @@ const WorkerMaster=()=>{
       return all;
     };
     // Use cache for reference data (sites/stores/materials/buildings) â€” rarely changes
+    const cachedWorkers=cacheGet("workers");
     const cachedSites=cacheGet("sites");
     const cachedStores=cacheGet("stores");
     const cachedMats=cacheGet("materials");
     const cachedBl=cacheGet("buildings");
-    const [w,s,st,m,bl]=await Promise.all([
-      // Workers: Only fetch columns needed for list view (saves ~70% egress vs SELECT *)
-      fetchAll(sb.from("workers").select("id,worker_code,worker_name,trade,status,per_day_rate,current_site_id,current_store_id,building_id,date_joined,gtv_date,gtv_promise_date,mobile,aadhaar_number,father_name,entry_status,is_active,worker_type,worker_photo_url,aadhaar_photo_url,pan_photo_url,bank_photo_url,sites(site_name)").order("worker_name")),
+    let w=cachedWorkers;
+    const [s,st,m,bl]=await Promise.all([
       cachedSites||sb.from("sites").select("site_id,site_name,job_id").eq("is_active",true).order("site_name").then(r=>r.data||[]),
       cachedStores||sb.from("stores").select("store_id,store_name,site_id").eq("is_active",true).then(r=>r.data||[]),
       cachedMats||sb.from("materials").select("material_id,material_name,unit").eq("is_active",true).order("material_name").then(r=>r.data||[]),
       cachedBl||sb.from("buildings").select("id,building_name,building_code,site_id").eq("is_active",true).then(r=>r.data||[]),
     ]);
+    if(!w){
+      w=await fetchAll(sb.from("workers").select("id,worker_code,worker_name,trade,status,per_day_rate,current_site_id,current_store_id,building_id,date_joined,gtv_date,gtv_promise_date,mobile,aadhaar_number,father_name,entry_status,is_active,worker_type,worker_photo_url,aadhaar_photo_url,pan_photo_url,bank_photo_url,sites(site_name)").order("worker_name"));
+      cacheSet("workers",w);
+    }
     if(!cachedSites)cacheSet("sites",s);
     if(!cachedStores)cacheSet("stores",st);
     if(!cachedMats)cacheSet("materials",m);
@@ -1863,6 +1869,7 @@ const WorkerMaster=()=>{
       if(histEvents.length) await sb.from("worker_history").insert(histEvents);
     }
 
+    cacheDel("workers");
     show(editing?"Updated âœ“":"Worker added âœ“");setOpen(false);load();
   };
 
@@ -5679,9 +5686,12 @@ const LabourEntry=()=>{
       if(json[0]?.Status==="Success"){
         const offices=json[0].PostOffice||[];
         if(offices.length>0){
+          const first=offices[0]||{};
           F({
-            addr_district:offices[0].District||"",
-            addr_state:offices[0].State||"",
+            addr_village:first.Name||"",
+            addr_block:first.Block||"",
+            addr_district:first.District||"",
+            addr_state:first.State||"",
             addr_pincode:pin,
           });
           setPincodeResults(offices);
@@ -5886,7 +5896,6 @@ const LabourEntry=()=>{
   // File upload helper â€” tries sbAdmin first (bypasses RLS), falls back to base64
   const uploadFile=async(file,folder)=>{
     if(!file)return null;
-    // Fallback: store as base64 in DB if file is small enough (photos < 200KB)
     const toBase64=(f)=>new Promise((res,rej)=>{
       const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=rej;r.readAsDataURL(f);
     });
@@ -5906,12 +5915,16 @@ const LabourEntry=()=>{
       msg.includes("resource")||msg.includes("row-level")||
       (error.statusCode===404||error.statusCode===400||error.statusCode===403);
     if(isRLSorBucket){
-      // Fallback: base64 for photos only (keep DB size reasonable)
-      if(folder==="photos"&&file.size<300000){
-        try{const b64=await toBase64(file);return b64;}catch(e){}
+      // Fallback: store inline base64 when storage is unavailable.
+      // This keeps worker photos and document scans from being lost in the current UAT setup.
+      if(file.size<900000){
+        try{
+          const b64=await toBase64(file);
+          show("⚠ Storage bucket unavailable — saved inline in the worker record.","warning");
+          return b64;
+        }catch(e){}
       }
-      if(folder!=="photos") return null; // skip non-photo docs silently
-      show("âš  Photo storage not configured â€” saved as inline image.","warning");
+      show("⚠ File could not be uploaded or stored. Please retry once storage is available.","warning");
       return null;
     }
     show("Upload failed: "+error.message,"error");
@@ -6162,6 +6175,7 @@ const LabourEntry=()=>{
         _photoFile:null,_aadhaarFile:null,_panFile:null,_bankFile:null});
     }
 
+    cacheDel("workers");
     setDraftSaving(false);
     show("Draft saved âœ“ â€” you can continue filling the form","success");
     load(); // refresh list in background
